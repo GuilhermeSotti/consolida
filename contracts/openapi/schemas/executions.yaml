@@ -1,0 +1,153 @@
+Execution:
+  type: object
+  properties:
+    id:
+      type: string
+      format: uuid
+    ruleId:
+      type: string
+      format: uuid
+    status:
+      type: string
+      enum:
+        - PENDING
+        - RUNNING
+        - SUCCESS
+        - FAILED
+        - CANCELLED
+    sourceIds:
+      type: array
+      items:
+        type: string
+        format: uuid
+    startedAt:
+      type: string
+      format: date-time
+    finishedAt:
+      type: string
+      format: date-time
+      nullable: true
+    processedRows:
+      type: integer
+      default: 0
+    matchedRows:
+      type: integer
+      default: 0
+    errorCount:
+      type: integer
+      default: 0
+    warnings:
+      type: integer
+      default: 0
+    duration:
+      type: integer
+      nullable: true
+      description: Duração em milissegundos
+    errors:
+      type: array
+      items:
+        type: object
+        properties:
+          row:
+            type: integer
+          column:
+            type: string
+          message:
+            type: string
+    createdBy:
+      type: string
+      format: uuid
+  required:
+    - id
+    - ruleId
+    - status
+    - startedAt
+    - processedRows
+    - errorCount
+
+ExecutionRequest:
+  type: object
+  properties:
+    ruleId:
+      type: string
+      format: uuid
+    sourceIds:
+      type: array
+      items:
+        type: string
+        format: uuid
+      minItems: 1
+  required:
+    - ruleId
+
+ExecutionResponse:
+  type: object
+  properties:
+    success:
+      type: boolean
+      enum: [true]
+    data:
+      type: object
+      properties:
+        executionId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum:
+            - PENDING
+            - RUNNING
+    metadata:
+      type: object
+  required:
+    - success
+    - data
+
+ExecutionListResponse:
+  type: object
+  properties:
+    success:
+      type: boolean
+      enum: [true]
+    data:
+      type: array
+      items:
+        $ref: '#/components/schemas/Execution'
+    metadata:
+      type: object
+      properties:
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+        filters:
+          type: object
+          properties:
+            status:
+              type: string
+            ruleId:
+              type: string
+  required:
+    - success
+    - data
+    - metadata
+
+ExecutionStats:
+  type: object
+  properties:
+    totalExecutions:
+      type: integer
+    successfulExecutions:
+      type: integer
+    failedExecutions:
+      type: integer
+    averageDuration:
+      type: number
+    totalProcessedRows:
+      type: integer
+  required:
+    - totalExecutions
+    - successfulExecutions
+    - failedExecutions
+
+CancelExecutionRequest:
+  type: object
+  properties: {}

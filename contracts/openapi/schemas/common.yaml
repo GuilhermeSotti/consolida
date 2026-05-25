@@ -1,0 +1,94 @@
+Pagination:
+  type: object
+  properties:
+    page:
+      type: integer
+      minimum: 1
+      default: 1
+    pageSize:
+      type: integer
+      minimum: 1
+      maximum: 100
+      default: 20
+    totalItems:
+      type: integer
+    totalPages:
+      type: integer
+  required:
+    - page
+    - pageSize
+    - totalItems
+    - totalPages
+
+SuccessResponse:
+  type: object
+  properties:
+    success:
+      type: boolean
+      enum: [true]
+    data:
+      type: object
+    metadata:
+      type: object
+  required:
+    - success
+    - data
+
+SuccessPaginatedResponse:
+  type: object
+  properties:
+    success:
+      type: boolean
+      enum: [true]
+    data:
+      type: array
+    metadata:
+      type: object
+      properties:
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+  required:
+    - success
+    - data
+    - metadata
+
+ErrorResponse:
+  type: object
+  properties:
+    success:
+      type: boolean
+      enum: [false]
+    error:
+      type: object
+      properties:
+        code:
+          type: string
+          description: Código de erro único
+        message:
+          type: string
+          description: Mensagem de erro legível
+        details:
+          type: array
+          items:
+            type: object
+            properties:
+              field:
+                type: string
+              message:
+                type: string
+      required:
+        - code
+        - message
+  required:
+    - success
+    - error
+
+Timestamp:
+  type: string
+  format: date-time
+  description: ISO 8601 timestamp
+
+UUID:
+  type: string
+  format: uuid
+  description: UUID v4

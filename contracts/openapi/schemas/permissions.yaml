@@ -1,0 +1,103 @@
+Permission:
+  type: object
+  properties:
+    id:
+      type: string
+      format: uuid
+    name:
+      type: string
+      description: Nome descritivo da permissão
+    code:
+      type: string
+      description: Código único da permissão
+    description:
+      type: string
+    resource:
+      type: string
+      enum:
+        - RULES
+        - SOURCES
+        - EXECUTIONS
+        - REPORTS
+        - USERS
+        - PERMISSIONS
+    action:
+      type: string
+      enum:
+        - CREATE
+        - READ
+        - UPDATE
+        - DELETE
+        - EXECUTE
+    createdAt:
+      type: string
+      format: date-time
+  required:
+    - id
+    - name
+    - code
+    - resource
+    - action
+
+RolePermission:
+  type: object
+  properties:
+    roleId:
+      type: string
+      format: uuid
+    permissionId:
+      type: string
+      format: uuid
+    grantedAt:
+      type: string
+      format: date-time
+  required:
+    - roleId
+    - permissionId
+
+GrantPermissionRequest:
+  type: object
+  properties:
+    permissionIds:
+      type: array
+      items:
+        type: string
+        format: uuid
+  required:
+    - permissionIds
+
+RevokePermissionRequest:
+  type: object
+  properties:
+    permissionIds:
+      type: array
+      items:
+        type: string
+        format: uuid
+  required:
+    - permissionIds
+
+Role:
+  type: object
+  properties:
+    id:
+      type: string
+      format: uuid
+    name:
+      type: string
+    description:
+      type: string
+    permissions:
+      type: array
+      items:
+        $ref: '#/components/schemas/Permission'
+    createdAt:
+      type: string
+      format: date-time
+    updatedAt:
+      type: string
+      format: date-time
+  required:
+    - id
+    - name
+    - permissions

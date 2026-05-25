@@ -1,0 +1,207 @@
+Report:
+  type: object
+  properties:
+    id:
+      type: string
+      format: uuid
+    executionId:
+      type: string
+      format: uuid
+    title:
+      type: string
+    status:
+      type: string
+      enum:
+        - AVAILABLE
+        - GENERATING
+        - FAILED
+    format:
+      type: string
+      enum:
+        - PDF
+        - CSV
+        - XLSX
+        - JSON
+    generatedAt:
+      type: string
+      format: date-time
+    fileSize:
+      type: integer
+      nullable: true
+      description: Tamanho do arquivo em bytes
+    downloadUrl:
+      type: string
+      format: uri
+      nullable: true
+    expiresAt:
+      type: string
+      format: date-time
+      nullable: true
+    summary:
+      type: object
+      properties:
+        totalRecords:
+          type: integer
+        processedRecords:
+          type: integer
+        successRecords:
+          type: integer
+        errorRecords:
+          type: integer
+    metadata:
+      type: object
+  required:
+    - id
+    - executionId
+    - status
+    - format
+    - generatedAt
+
+CreateReportRequest:
+  type: object
+  properties:
+    executionId:
+      type: string
+      format: uuid
+    title:
+      type: string
+      minLength: 1
+      maxLength: 255
+    format:
+      type: string
+      enum:
+        - PDF
+        - CSV
+        - XLSX
+        - JSON
+      default: PDF
+    includeDetails:
+      type: boolean
+      default: true
+    includeCharts:
+      type: boolean
+      default: true
+  required:
+    - executionId
+    - title
+    - format
+
+UpdateReportRequest:
+  type: object
+  properties:
+    title:
+      type: string
+      minLength: 1
+      maxLength: 255
+
+GenerateReportRequest:
+  type: object
+  properties:
+    ruleId:
+      type: string
+      format: uuid
+    period:
+      type: object
+      properties:
+        startDate:
+          type: string
+          format: date
+        endDate:
+          type: string
+          format: date
+      required:
+        - startDate
+        - endDate
+    format:
+      type: string
+      enum:
+        - PDF
+        - CSV
+        - XLSX
+        - JSON
+      default: PDF
+    groupBy:
+      type: string
+      enum:
+        - DAY
+        - WEEK
+        - MONTH
+        - YEAR
+      nullable: true
+  required:
+    - ruleId
+    - period
+    - format
+
+ReportListResponse:
+  type: object
+  properties:
+    success:
+      type: boolean
+      enum: [true]
+    data:
+      type: array
+      items:
+        $ref: '#/components/schemas/Report'
+    metadata:
+      type: object
+      properties:
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+        filters:
+          type: object
+          properties:
+            status:
+              type: string
+            format:
+              type: string
+  required:
+    - success
+    - data
+    - metadata
+
+ReportSchedule:
+  type: object
+  properties:
+    id:
+      type: string
+      format: uuid
+    executionId:
+      type: string
+      format: uuid
+    name:
+      type: string
+    frequency:
+      type: string
+      enum:
+        - DAILY
+        - WEEKLY
+        - MONTHLY
+    format:
+      type: string
+      enum:
+        - PDF
+        - CSV
+        - XLSX
+        - JSON
+    recipients:
+      type: array
+      items:
+        type: string
+        format: email
+    status:
+      type: string
+      enum:
+        - ACTIVE
+        - INACTIVE
+    createdAt:
+      type: string
+      format: date-time
+  required:
+    - id
+    - executionId
+    - name
+    - frequency
+    - format
+    - recipients
+    - status

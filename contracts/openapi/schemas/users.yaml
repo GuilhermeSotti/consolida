@@ -1,0 +1,122 @@
+User:
+  type: object
+  properties:
+    id:
+      type: string
+      format: uuid
+    email:
+      type: string
+      format: email
+    name:
+      type: string
+    role:
+      type: string
+      enum:
+        - ADMIN
+        - MANAGER
+        - ANALYST
+        - VIEWER
+    status:
+      type: string
+      enum:
+        - ACTIVE
+        - INACTIVE
+    department:
+      type: string
+      nullable: true
+    createdAt:
+      type: string
+      format: date-time
+    updatedAt:
+      type: string
+      format: date-time
+  required:
+    - id
+    - email
+    - name
+    - role
+    - status
+
+CreateUserRequest:
+  type: object
+  properties:
+    email:
+      type: string
+      format: email
+    name:
+      type: string
+      minLength: 1
+      maxLength: 255
+    role:
+      type: string
+      enum:
+        - ADMIN
+        - MANAGER
+        - ANALYST
+        - VIEWER
+    password:
+      type: string
+      minLength: 8
+    department:
+      type: string
+      nullable: true
+  required:
+    - email
+    - name
+    - role
+    - password
+
+UpdateUserRequest:
+  type: object
+  properties:
+    name:
+      type: string
+      minLength: 1
+      maxLength: 255
+    role:
+      type: string
+      enum:
+        - ADMIN
+        - MANAGER
+        - ANALYST
+        - VIEWER
+    status:
+      type: string
+      enum:
+        - ACTIVE
+        - INACTIVE
+    department:
+      type: string
+      nullable: true
+
+ChangePasswordRequest:
+  type: object
+  properties:
+    currentPassword:
+      type: string
+    newPassword:
+      type: string
+      minLength: 8
+  required:
+    - currentPassword
+    - newPassword
+
+UserListResponse:
+  type: object
+  properties:
+    success:
+      type: boolean
+      enum: [true]
+    data:
+      type: array
+      items:
+        $ref: '#/components/schemas/User'
+    metadata:
+      type: object
+      properties:
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+  required:
+    - success
+    - data
+    - metadata

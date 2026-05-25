@@ -1,0 +1,187 @@
+Rule:
+  type: object
+  properties:
+    id:
+      type: string
+      format: uuid
+    name:
+      type: string
+      minLength: 1
+      maxLength: 255
+    description:
+      type: string
+      nullable: true
+    version:
+      type: integer
+      minimum: 1
+    status:
+      type: string
+      enum:
+        - ACTIVE
+        - INACTIVE
+    sourceIds:
+      type: array
+      items:
+        type: string
+        format: uuid
+      description: Fontes associadas à regra
+    conditions:
+      type: object
+      description: Condições da regra em formato JSON
+    actions:
+      type: object
+      description: Ações a executar quando condições forem atendidas
+    priority:
+      type: integer
+      minimum: 0
+      default: 0
+    createdBy:
+      type: string
+      format: uuid
+    updatedBy:
+      type: string
+      format: uuid
+      nullable: true
+    createdAt:
+      type: string
+      format: date-time
+    updatedAt:
+      type: string
+      format: date-time
+  required:
+    - id
+    - name
+    - version
+    - status
+    - sourceIds
+    - conditions
+    - actions
+    - priority
+    - createdBy
+    - createdAt
+
+CreateRuleRequest:
+  type: object
+  properties:
+    name:
+      type: string
+      minLength: 1
+      maxLength: 255
+    description:
+      type: string
+      nullable: true
+    sourceIds:
+      type: array
+      items:
+        type: string
+        format: uuid
+      minItems: 1
+    conditions:
+      type: object
+      description: Condições em formato JSON
+    actions:
+      type: object
+      description: Ações em formato JSON
+    priority:
+      type: integer
+      minimum: 0
+      default: 0
+    status:
+      type: string
+      enum:
+        - ACTIVE
+        - INACTIVE
+      default: ACTIVE
+  required:
+    - name
+    - sourceIds
+    - conditions
+    - actions
+
+UpdateRuleRequest:
+  type: object
+  properties:
+    name:
+      type: string
+      minLength: 1
+      maxLength: 255
+    description:
+      type: string
+      nullable: true
+    sourceIds:
+      type: array
+      items:
+        type: string
+        format: uuid
+      minItems: 1
+    conditions:
+      type: object
+    actions:
+      type: object
+    priority:
+      type: integer
+      minimum: 0
+    status:
+      type: string
+      enum:
+        - ACTIVE
+        - INACTIVE
+
+RuleVersion:
+  type: object
+  properties:
+    id:
+      type: string
+      format: uuid
+    ruleId:
+      type: string
+      format: uuid
+    version:
+      type: integer
+    name:
+      type: string
+    description:
+      type: string
+      nullable: true
+    conditions:
+      type: object
+    actions:
+      type: object
+    createdAt:
+      type: string
+      format: date-time
+  required:
+    - id
+    - ruleId
+    - version
+    - name
+    - conditions
+    - actions
+    - createdAt
+
+RuleListResponse:
+  type: object
+  properties:
+    success:
+      type: boolean
+      enum: [true]
+    data:
+      type: array
+      items:
+        $ref: '#/components/schemas/Rule'
+    metadata:
+      type: object
+      properties:
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+        filters:
+          type: object
+          properties:
+            status:
+              type: string
+            search:
+              type: string
+  required:
+    - success
+    - data
+    - metadata

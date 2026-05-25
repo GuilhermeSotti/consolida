@@ -1,0 +1,1791 @@
+openapi: 3.1.0
+
+info:
+  title: ConsolidaHub API
+  version: 1.0.0
+  description: >
+    API oficial do ConsolidaHub - Motor de Regras e Relatório Consolidado.
+    
+    Uma plataforma profissional de automação de regras e consolidação de dados
+    com suporte para múltiplas fontes, execuções paralelas e relatórios em tempo real.
+  contact:
+    name: ConsolidaHub Support
+    url: https://consolidahub.com/support
+    email: support@consolidahub.com
+  license:
+    name: Proprietary
+    url: https://consolidahub.com/license
+  x-logo:
+    url: https://consolidahub.com/logo.png
+    altText: ConsolidaHub Logo
+
+servers:
+  - url: https://api.consolidahub.com/api/v1
+    description: Produção
+    variables:
+      environment:
+        default: prod
+        enum:
+          - prod
+
+  - url: https://hml-api.consolidahub.com/api/v1
+    description: Homologação
+    variables:
+      environment:
+        default: hml
+        enum:
+          - hml
+
+  - url: http://localhost:3000/api/v1
+    description: Desenvolvimento Local
+
+tags:
+  - name: Auth
+    description: Autenticação e autorização
+  - name: Users
+    description: Gerenciamento de usuários
+  - name: Permissions
+    description: Gerenciamento de permissões e papéis
+  - name: Rules
+    description: Gerenciamento de regras de consolidação
+  - name: Sources
+    description: Gerenciamento de fontes de dados
+  - name: Executions
+    description: Execução de processamentos
+  - name: Reports
+    description: Geração e gerenciamento de relatórios
+  - name: Notifications
+    description: Sistema de notificações
+
+security:
+  - bearerAuth: []
+
+paths:
+  # ==================== AUTH ====================
+  /auth/login:
+    post:
+      operationId: postAuthLogin
+      tags:
+        - Auth
+      summary: Login corporativo
+      description: Autentica usuário com email e senha, retornando JWT
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Login realizado com sucesso
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '400':
+          description: Validação falhou
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Credenciais inválidas
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/refresh:
+    post:
+      operationId: postAuthRefresh
+      tags:
+        - Auth
+      summary: Renovar token
+      description: Renova o token JWT usando refresh token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshTokenRequest'
+      responses:
+        '200':
+          description: Token renovado com sucesso
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '401':
+          description: Refresh token inválido ou expirado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/logout:
+    post:
+      operationId: postAuthLogout
+      tags:
+        - Auth
+      summary: Logout
+      description: Invalida o token do usuário autenticado
+      responses:
+        '200':
+          description: Logout realizado com sucesso
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LogoutResponse'
+
+  /auth/me:
+    get:
+      operationId: getAuthMe
+      tags:
+        - Auth
+      summary: Perfil do usuário autenticado
+      description: Retorna informações do usuário atualmente autenticado
+      responses:
+        '200':
+          description: Perfil retornado com sucesso
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    enum: [true]
+                  data:
+                    $ref: '#/components/schemas/UserProfile'
+                  metadata:
+                    type: object
+        '401':
+          description: Não autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ==================== USERS ====================
+  /users:
+    get:
+      operationId: getUsers
+      tags:
+        - Users
+      summary: Listar usuários
+      description: Lista todos os usuários com paginação e filtros
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+          description: Número da página
+        - in: query
+          name: pageSize
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+          description: Quantidade de itens por página
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [ACTIVE, INACTIVE]
+          description: Filtrar por status
+        - in: query
+          name: search
+          schema:
+            type: string
+          description: Buscar por nome ou email
+        - in: query
+          name: sortBy
+          schema:
+            type: string
+            enum: [name, email, createdAt]
+            default: createdAt
+        - in: query
+          name: sortOrder
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: desc
+      responses:
+        '200':
+          description: Listagem retornada com sucesso
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserListResponse'
+        '403':
+          description: Sem permissão
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    post:
+      operationId: postUsers
+      tags:
+        - Users
+      summary: Criar usuário
+      description: Cria novo usuário no sistema
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUserRequest'
+      responses:
+        '201':
+          description: Usuário criado com sucesso
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    enum: [true]
+                  data:
+                    $ref: '#/components/schemas/User'
+                  metadata:
+                    type: object
+        '400':
+          description: Validação falhou
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Sem permissão
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /users/{userId}:
+    get:
+      operationId: getUsersById
+      tags:
+        - Users
+      summary: Obter usuário
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Usuário retornado com sucesso
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    enum: [true]
+                  data:
+                    $ref: '#/components/schemas/User'
+                  metadata:
+                    type: object
+        '404':
+          description: Usuário não encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    patch:
+      operationId: patchUsersById
+      tags:
+        - Users
+      summary: Atualizar usuário
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateUserRequest'
+      responses:
+        '200':
+          description: Usuário atualizado com sucesso
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    enum: [true]
+                  data:
+                    $ref: '#/components/schemas/User'
+                  metadata:
+                    type: object
+        '400':
+          description: Validação falhou
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Usuário não encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    delete:
+      operationId: deleteUsersById
+      tags:
+        - Users
+      summary: Deletar usuário
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Usuário deletado com sucesso
+        '403':
+          description: Sem permissão
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Usuário não encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /users/{userId}/change-password:
+    post:
+      operationId: postUsersChangePassword
+      tags:
+        - Users
+      summary: Alterar senha
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordRequest'
+      responses:
+        '200':
+          description: Senha alterada com sucesso
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '400':
+          description: Validação falhou
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Senha atual incorreta
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ==================== PERMISSIONS ====================
+  /permissions:
+    get:
+      operationId: getPermissions
+      tags:
+        - Permissions
+      summary: Listar permissões
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+            default: 1
+        - in: query
+          name: pageSize
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: Permissões listadas
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    enum: [true]
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Permission'
+                  metadata:
+                    type: object
+                    properties:
+                      pagination:
+                        $ref: '#/components/schemas/Pagination'
+
+  /roles:
+    get:
+      operationId: getRoles
+      tags:
+        - Permissions
+      summary: Listar papéis
+      responses:
+        '200':
+          description: Papéis listados
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    enum: [true]
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Role'
+                  metadata:
+                    type: object
+
+  /roles/{roleId}/permissions:
+    patch:
+      operationId: patchRolePermissions
+      tags:
+        - Permissions
+      summary: Atualizar permissões de um papel
+      parameters:
+        - in: path
+          name: roleId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GrantPermissionRequest'
+      responses:
+        '200':
+          description: Permissões atualizadas
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    enum: [true]
+                  data:
+                    $ref: '#/components/schemas/Role'
+                  metadata:
+                    type: object
+
+  # ==================== RULES ====================
+  /rules:
+    get:
+      operationId: getRules
+      tags:
+        - Rules
+      summary: Listar regras cadastradas
+      description: Lista todas as regras com paginação e filtros
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - in: query
+          name: pageSize
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [ACTIVE, INACTIVE]
+        - in: query
+          name: search
+          schema:
+            type: string
+            description: Busca por nome ou descrição
+        - in: query
+          name: sortBy
+          schema:
+            type: string
+            enum: [name, createdAt, version]
+            default: createdAt
+        - in: query
+          name: sortOrder
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: desc
+      responses:
+        '200':
+          description: Lista de regras retornada com sucesso
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RuleListResponse'
+
+    post:
+      operationId: postRules
+      tags:
+        - Rules
+      summary: Cria nova regra
+      description: Cria uma nova regra de consolidação com condições e ações
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRuleRequest'
+      responses:
+        '201':
+          description: Regra criada com sucesso
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    enum: [true]
+                  data:
+                    $ref: '#/components/schemas/Rule'
+                  metadata:
+                    type: object
+        '400':
+          description: Validação falhou
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Regra inválida
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /rules/{ruleId}:
+    get:
+      operationId: getRulesById
+      tags:
+        - Rules
+      summary: Obter detalhes da regra
+      parameters:
+        - in: path
+          name: ruleId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Regra retornada com sucesso
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    enum: [true]
+                  data:
+                    $ref: '#/components/schemas/Rule'
+                  metadata:
+                    type: object
+        '404':
+          description: Regra não encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    patch:
+      operationId: patchRulesById
+      tags:
+        - Rules
+      summary: Atualizar regra
+      parameters:
+        - in: path
+          name: ruleId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateRuleRequest'
+      responses:
+        '200':
+          description: Regra atualizada com sucesso
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    enum: [true]
+                  data:
+                    $ref: '#/components/schemas/Rule'
+                  metadata:
+                    type: object
+        '400':
+          description: Validação falhou
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Regra não encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    delete:
+      operationId: deleteRulesById
+      tags:
+        - Rules
+      summary: Deletar regra
+      parameters:
+        - in: path
+          name: ruleId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Regra deletada com sucesso
+        '404':
+          description: Regra não encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /rules/{ruleId}/versions:
+    get:
+      operationId: getRuleVersions
+      tags:
+        - Rules
+      summary: Listar versões da regra
+      parameters:
+        - in: path
+          name: ruleId
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: page
+          schema:
+            type: integer
+            default: 1
+        - in: query
+          name: pageSize
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: Versões listadas
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    enum: [true]
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/RuleVersion'
+                  metadata:
+                    type: object
+                    properties:
+                      pagination:
+                        $ref: '#/components/schemas/Pagination'
+
+  /rules/{ruleId}/activate:
+    post:
+      operationId: postRuleActivate
+      tags:
+        - Rules
+      summary: Ativar regra
+      parameters:
+        - in: path
+          name: ruleId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Regra ativada
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    enum: [true]
+                  data:
+                    $ref: '#/components/schemas/Rule'
+                  metadata:
+                    type: object
+
+  /rules/{ruleId}/deactivate:
+    post:
+      operationId: postRuleDeactivate
+      tags:
+        - Rules
+      summary: Desativar regra
+      parameters:
+        - in: path
+          name: ruleId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Regra desativada
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    enum: [true]
+                  data:
+                    $ref: '#/components/schemas/Rule'
+                  metadata:
+                    type: object
+
+  # ==================== SOURCES ====================
+  /sources:
+    get:
+      operationId: getSources
+      tags:
+        - Sources
+      summary: Listar bases de dados
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+            default: 1
+        - in: query
+          name: pageSize
+          schema:
+            type: integer
+            default: 20
+        - in: query
+          name: type
+          schema:
+            type: string
+            enum: [CSV, XLSX, DATABASE, API]
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [ACTIVE, INACTIVE]
+        - in: query
+          name: search
+          schema:
+            type: string
+        - in: query
+          name: sortBy
+          schema:
+            type: string
+            enum: [name, createdAt, type]
+            default: createdAt
+        - in: query
+          name: sortOrder
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: desc
+      responses:
+        '200':
+          description: Lista de bases retornada com sucesso
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    enum: [true]
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Source'
+                  metadata:
+                    type: object
+                    properties:
+                      pagination:
+                        $ref: '#/components/schemas/Pagination'
+
+    post:
+      operationId: postSources
+      tags:
+        - Sources
+      summary: Registra uma base de entrada
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSourceRequest'
+      responses:
+        '201':
+          description: Base registrada com sucesso
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    enum: [true]
+                  data:
+                    $ref: '#/components/schemas/Source'
+                  metadata:
+                    type: object
+        '400':
+          description: Validação falhou
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /sources/{sourceId}:
+    get:
+      operationId: getSourcesById
+      tags:
+        - Sources
+      parameters:
+        - in: path
+          name: sourceId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Base retornada com sucesso
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    enum: [true]
+                  data:
+                    $ref: '#/components/schemas/Source'
+                  metadata:
+                    type: object
+        '404':
+          description: Base não encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    patch:
+      operationId: patchSourcesById
+      tags:
+        - Sources
+      parameters:
+        - in: path
+          name: sourceId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateSourceRequest'
+      responses:
+        '200':
+          description: Base atualizada com sucesso
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    enum: [true]
+                  data:
+                    $ref: '#/components/schemas/Source'
+                  metadata:
+                    type: object
+
+    delete:
+      operationId: deleteSourcesById
+      tags:
+        - Sources
+      parameters:
+        - in: path
+          name: sourceId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Base deletada com sucesso
+        '404':
+          description: Base não encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /sources/{sourceId}/test:
+    post:
+      operationId: postSourceTest
+      tags:
+        - Sources
+      summary: Testar conexão com base
+      parameters:
+        - in: path
+          name: sourceId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Teste concluído
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/SourceTestResponse'
+                  metadata:
+                    type: object
+
+  /sources/{sourceId}/health:
+    get:
+      operationId: getSourceHealth
+      tags:
+        - Sources
+      summary: Verificar saúde da base
+      parameters:
+        - in: path
+          name: sourceId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Status da base
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    enum: [true]
+                  data:
+                    $ref: '#/components/schemas/SourceHealth'
+                  metadata:
+                    type: object
+
+  # ==================== EXECUTIONS ====================
+  /executions:
+    get:
+      operationId: getExecutions
+      tags:
+        - Executions
+      summary: Histórico de execuções
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+            default: 1
+        - in: query
+          name: pageSize
+          schema:
+            type: integer
+            default: 20
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [PENDING, RUNNING, SUCCESS, FAILED, CANCELLED]
+        - in: query
+          name: ruleId
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: sortBy
+          schema:
+            type: string
+            enum: [startedAt, finishedAt, status]
+            default: startedAt
+        - in: query
+          name: sortOrder
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: desc
+      responses:
+        '200':
+          description: Execuções listadas
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExecutionListResponse'
+
+    post:
+      operationId: postExecutions
+      tags:
+        - Executions
+      summary: Executa processamento consolidado
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExecutionRequest'
+      responses:
+        '201':
+          description: Execução iniciada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExecutionResponse'
+        '400':
+          description: Validação falhou
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /executions/{executionId}:
+    get:
+      operationId: getExecutionsById
+      tags:
+        - Executions
+      parameters:
+        - in: path
+          name: executionId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Execução retornada
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    enum: [true]
+                  data:
+                    $ref: '#/components/schemas/Execution'
+                  metadata:
+                    type: object
+        '404':
+          description: Execução não encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /executions/{executionId}/cancel:
+    post:
+      operationId: postExecutionsCancel
+      tags:
+        - Executions
+      summary: Cancelar execução
+      parameters:
+        - in: path
+          name: executionId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Execução cancelada
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    enum: [true]
+                  data:
+                    $ref: '#/components/schemas/Execution'
+                  metadata:
+                    type: object
+
+  /executions/stats:
+    get:
+      operationId: getExecutionStats
+      tags:
+        - Executions
+      summary: Estatísticas de execuções
+      responses:
+        '200':
+          description: Estatísticas retornadas
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    enum: [true]
+                  data:
+                    $ref: '#/components/schemas/ExecutionStats'
+                  metadata:
+                    type: object
+
+  # ==================== REPORTS ====================
+  /reports:
+    get:
+      operationId: getReports
+      tags:
+        - Reports
+      summary: Listar relatórios
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+            default: 1
+        - in: query
+          name: pageSize
+          schema:
+            type: integer
+            default: 20
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [AVAILABLE, GENERATING, FAILED]
+        - in: query
+          name: format
+          schema:
+            type: string
+            enum: [PDF, CSV, XLSX, JSON]
+        - in: query
+          name: sortBy
+          schema:
+            type: string
+            enum: [generatedAt]
+            default: generatedAt
+        - in: query
+          name: sortOrder
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: desc
+      responses:
+        '200':
+          description: Relatórios listados
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportListResponse'
+
+    post:
+      operationId: postReports
+      tags:
+        - Reports
+      summary: Criar relatório
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateReportRequest'
+      responses:
+        '201':
+          description: Relatório criado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    enum: [true]
+                  data:
+                    $ref: '#/components/schemas/Report'
+                  metadata:
+                    type: object
+
+  /reports/{reportId}:
+    get:
+      operationId: getReportsById
+      tags:
+        - Reports
+      summary: Obter relatório consolidado
+      parameters:
+        - in: path
+          name: reportId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Relatório retornado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    enum: [true]
+                  data:
+                    $ref: '#/components/schemas/Report'
+                  metadata:
+                    type: object
+        '404':
+          description: Relatório não encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    patch:
+      operationId: patchReportsById
+      tags:
+        - Reports
+      parameters:
+        - in: path
+          name: reportId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateReportRequest'
+      responses:
+        '200':
+          description: Relatório atualizado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    enum: [true]
+                  data:
+                    $ref: '#/components/schemas/Report'
+                  metadata:
+                    type: object
+
+    delete:
+      operationId: deleteReportsById
+      tags:
+        - Reports
+      parameters:
+        - in: path
+          name: reportId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Relatório deletado
+
+  /reports/{reportId}/download:
+    get:
+      operationId: getReportDownload
+      tags:
+        - Reports
+      summary: Download do relatório
+      parameters:
+        - in: path
+          name: reportId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Arquivo do relatório
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: Relatório não encontrado
+
+  /reports/schedules:
+    get:
+      operationId: getReportSchedules
+      tags:
+        - Reports
+      summary: Listar agendamentos de relatórios
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+            default: 1
+        - in: query
+          name: pageSize
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: Agendamentos listados
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    enum: [true]
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ReportSchedule'
+                  metadata:
+                    type: object
+
+    post:
+      operationId: postReportSchedules
+      tags:
+        - Reports
+      summary: Agendar relatório
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReportSchedule'
+      responses:
+        '201':
+          description: Agendamento criado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    enum: [true]
+                  data:
+                    $ref: '#/components/schemas/ReportSchedule'
+                  metadata:
+                    type: object
+
+  # ==================== NOTIFICATIONS ====================
+  /notifications:
+    get:
+      operationId: getNotifications
+      tags:
+        - Notifications
+      summary: Listar notificações
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+            default: 1
+        - in: query
+          name: pageSize
+          schema:
+            type: integer
+            default: 20
+        - in: query
+          name: read
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: Notificações listadas
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationListResponse'
+
+    post:
+      operationId: postNotifications
+      tags:
+        - Notifications
+      summary: Criar notificação
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateNotificationRequest'
+      responses:
+        '201':
+          description: Notificação criada
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    enum: [true]
+                  data:
+                    $ref: '#/components/schemas/Notification'
+                  metadata:
+                    type: object
+
+  /notifications/{notificationId}:
+    get:
+      operationId: getNotificationsById
+      tags:
+        - Notifications
+      parameters:
+        - in: path
+          name: notificationId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Notificação retornada
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    enum: [true]
+                  data:
+                    $ref: '#/components/schemas/Notification'
+                  metadata:
+                    type: object
+
+    patch:
+      operationId: patchNotificationsById
+      tags:
+        - Notifications
+      parameters:
+        - in: path
+          name: notificationId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MarkAsReadRequest'
+      responses:
+        '200':
+          description: Notificação atualizada
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    enum: [true]
+                  data:
+                    $ref: '#/components/schemas/Notification'
+                  metadata:
+                    type: object
+
+    delete:
+      operationId: deleteNotificationsById
+      tags:
+        - Notifications
+      parameters:
+        - in: path
+          name: notificationId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Notificação deletada
+
+  /notifications/bulk-mark-read:
+    patch:
+      operationId: patchNotificationsBulkMarkRead
+      tags:
+        - Notifications
+      summary: Marcar múltiplas notificações como lidas
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkMarkAsReadRequest'
+      responses:
+        '200':
+          description: Notificações atualizadas
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /notifications/preferences:
+    get:
+      operationId: getNotificationPreferences
+      tags:
+        - Notifications
+      summary: Obter preferências de notificação
+      responses:
+        '200':
+          description: Preferências retornadas
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    enum: [true]
+                  data:
+                    $ref: '#/components/schemas/NotificationPreferences'
+                  metadata:
+                    type: object
+
+    patch:
+      operationId: patchNotificationPreferences
+      tags:
+        - Notifications
+      summary: Atualizar preferências de notificação
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NotificationPreferences'
+      responses:
+        '200':
+          description: Preferências atualizadas
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    enum: [true]
+                  data:
+                    $ref: '#/components/schemas/NotificationPreferences'
+                  metadata:
+                    type: object
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >
+        Autenticação via JWT. Obtenha o token fazendo login em `/auth/login`.
+        Inclua o token no header: `Authorization: Bearer <seu-token>`
+
+  schemas:
+    # Common Schemas
+    Pagination:
+      $ref: './schemas/common.yaml#/Pagination'
+    SuccessResponse:
+      $ref: './schemas/common.yaml#/SuccessResponse'
+    SuccessPaginatedResponse:
+      $ref: './schemas/common.yaml#/SuccessPaginatedResponse'
+    ErrorResponse:
+      $ref: './schemas/common.yaml#/ErrorResponse'
+    Timestamp:
+      $ref: './schemas/common.yaml#/Timestamp'
+    UUID:
+      $ref: './schemas/common.yaml#/UUID'
+
+    # Auth Schemas
+    LoginRequest:
+      $ref: './schemas/auth.yaml#/LoginRequest'
+    LoginResponse:
+      $ref: './schemas/auth.yaml#/LoginResponse'
+    UserProfile:
+      $ref: './schemas/auth.yaml#/UserProfile'
+    RefreshTokenRequest:
+      $ref: './schemas/auth.yaml#/RefreshTokenRequest'
+    LogoutResponse:
+      $ref: './schemas/auth.yaml#/LogoutResponse'
+
+    # User Schemas
+    User:
+      $ref: './schemas/users.yaml#/User'
+    CreateUserRequest:
+      $ref: './schemas/users.yaml#/CreateUserRequest'
+    UpdateUserRequest:
+      $ref: './schemas/users.yaml#/UpdateUserRequest'
+    ChangePasswordRequest:
+      $ref: './schemas/users.yaml#/ChangePasswordRequest'
+    UserListResponse:
+      $ref: './schemas/users.yaml#/UserListResponse'
+
+    # Permission Schemas
+    Permission:
+      $ref: './schemas/permissions.yaml#/Permission'
+    RolePermission:
+      $ref: './schemas/permissions.yaml#/RolePermission'
+    GrantPermissionRequest:
+      $ref: './schemas/permissions.yaml#/GrantPermissionRequest'
+    RevokePermissionRequest:
+      $ref: './schemas/permissions.yaml#/RevokePermissionRequest'
+    Role:
+      $ref: './schemas/permissions.yaml#/Role'
+
+    # Rule Schemas
+    Rule:
+      $ref: './schemas/rules.yaml#/Rule'
+    CreateRuleRequest:
+      $ref: './schemas/rules.yaml#/CreateRuleRequest'
+    UpdateRuleRequest:
+      $ref: './schemas/rules.yaml#/UpdateRuleRequest'
+    RuleVersion:
+      $ref: './schemas/rules.yaml#/RuleVersion'
+    RuleListResponse:
+      $ref: './schemas/rules.yaml#/RuleListResponse'
+
+    # Source Schemas
+    Source:
+      $ref: './schemas/sources.yaml#/Source'
+    CreateSourceRequest:
+      $ref: './schemas/sources.yaml#/CreateSourceRequest'
+    UpdateSourceRequest:
+      $ref: './schemas/sources.yaml#/UpdateSourceRequest'
+    SourceHealth:
+      $ref: './schemas/sources.yaml#/SourceHealth'
+    SourceTestRequest:
+      $ref: './schemas/sources.yaml#/SourceTestRequest'
+    SourceTestResponse:
+      $ref: './schemas/sources.yaml#/SourceTestResponse'
+
+    # Execution Schemas
+    Execution:
+      $ref: './schemas/executions.yaml#/Execution'
+    ExecutionRequest:
+      $ref: './schemas/executions.yaml#/ExecutionRequest'
+    ExecutionResponse:
+      $ref: './schemas/executions.yaml#/ExecutionResponse'
+    ExecutionListResponse:
+      $ref: './schemas/executions.yaml#/ExecutionListResponse'
+    ExecutionStats:
+      $ref: './schemas/executions.yaml#/ExecutionStats'
+    CancelExecutionRequest:
+      $ref: './schemas/executions.yaml#/CancelExecutionRequest'
+
+    # Report Schemas
+    Report:
+      $ref: './schemas/reports.yaml#/Report'
+    CreateReportRequest:
+      $ref: './schemas/reports.yaml#/CreateReportRequest'
+    UpdateReportRequest:
+      $ref: './schemas/reports.yaml#/UpdateReportRequest'
+    GenerateReportRequest:
+      $ref: './schemas/reports.yaml#/GenerateReportRequest'
+    ReportListResponse:
+      $ref: './schemas/reports.yaml#/ReportListResponse'
+    ReportSchedule:
+      $ref: './schemas/reports.yaml#/ReportSchedule'
+
+    # Notification Schemas
+    Notification:
+      $ref: './schemas/notifications.yaml#/Notification'
+    CreateNotificationRequest:
+      $ref: './schemas/notifications.yaml#/CreateNotificationRequest'
+    MarkAsReadRequest:
+      $ref: './schemas/notifications.yaml#/MarkAsReadRequest'
+    NotificationPreferences:
+      $ref: './schemas/notifications.yaml#/NotificationPreferences'
+    NotificationListResponse:
+      $ref: './schemas/notifications.yaml#/NotificationListResponse'
+    BulkMarkAsReadRequest:
+      $ref: './schemas/notifications.yaml#/BulkMarkAsReadRequest'
+
+x-internal: false

@@ -1,0 +1,166 @@
+LoginRequest:
+  type: object
+  properties:
+    email:
+      type: string
+      format: email
+      description: Email corporativo
+    password:
+      type: string
+      format: password
+      description: Senha
+  required:
+    - email
+    - password
+
+LoginResponse:
+  type: object
+  properties:
+    success:
+      type: boolean
+      enum: [true]
+    data:
+      type: object
+      properties:
+        token:
+          type: string
+          description: JWT Bearer token
+        refreshToken:
+          type: string
+          description: Token para renovação
+        user:
+          $ref: '#/components/schemas/UserProfile'
+    metadata:
+      type: object
+  required:
+    - success
+    - data
+
+UserProfile:
+  type: object
+  properties:
+    id:
+      type: string
+      format: uuid
+    email:
+      type: string
+      format: email
+    displayName:
+      type: string
+    entraSub:
+      type: string
+    roles:
+      type: array
+      items:
+        type: string
+        enum:
+          - ADMIN
+          - FUNCTIONAL_ADMIN
+          - BUSINESS_ANALYST
+          - OPERATIONS
+          - MANAGER
+          - VIEWER
+    permissions:
+      type: array
+      items:
+        type: string
+        description: Permissões no formato "resource:action" (e.g., "rules:create")
+    status:
+      type: string
+      enum:
+        - ACTIVE
+        - INACTIVE
+    createdAt:
+      type: string
+      format: date-time
+  required:
+    - id
+    - email
+    - displayName
+    - roles
+    - permissions
+
+EntraTokenPayload:
+  type: object
+  properties:
+    sub:
+      type: string
+      description: Subject (identificador único do usuário no Entra ID)
+    email:
+      type: string
+      format: email
+    preferred_username:
+      type: string
+    oid:
+      type: string
+      description: Object ID do usuário no Entra ID
+    appid:
+      type: string
+      description: Application ID (Client ID)
+    iat:
+      type: integer
+      description: Issued at (timestamp)
+    exp:
+      type: integer
+      description: Expiration time (timestamp)
+    iss:
+      type: string
+      description: Issuer
+    aud:
+      type: string
+      description: Audience
+
+RefreshTokenRequest:
+  type: object
+  properties:
+    refreshToken:
+      type: string
+  required:
+    - refreshToken
+
+LogoutResponse:
+  type: object
+  properties:
+    success:
+      type: boolean
+      enum: [true]
+    data:
+      type: object
+      properties:
+        message:
+          type: string
+  required:
+    - success
+    - data
+
+UnauthorizedResponse:
+  type: object
+  properties:
+    statusCode:
+      type: integer
+      enum: [401]
+    message:
+      type: string
+      description: Detalhes do erro de autenticação
+    timestamp:
+      type: string
+      format: date-time
+  required:
+    - statusCode
+    - message
+
+ForbiddenResponse:
+  type: object
+  properties:
+    statusCode:
+      type: integer
+      enum: [403]
+    message:
+      type: string
+      description: Usuário autenticado mas sem permissão
+    timestamp:
+      type: string
+      format: date-time
+  required:
+    - statusCode
+    - message

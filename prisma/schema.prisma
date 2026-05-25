@@ -1,0 +1,120 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============ RULES ============
+model Rule {
+  id          String   @id @db.Uuid
+  name        String   @db.VarChar(255)
+  description String?  @db.Text
+  version     Int      @default(1)
+  status      String   @db.VarChar(50)
+
+  sourceIds   String[] @db.Uuid
+  conditions  Json
+  actions     Json
+  priority    Int      @default(0)
+
+  createdBy   String   @db.Uuid
+  updatedBy   String?  @db.Uuid
+
+  createdAt   DateTime @default(now()) @db.Timestamp(3)
+  updatedAt   DateTime @updatedAt @db.Timestamp(3)
+
+  @@map("rules")
+  @@index([status])
+  @@index([createdAt])
+  @@index([createdBy])
+}
+
+// ============ AUTHENTICATION & AUTHORIZATION ============
+model User {
+  id          String   @id @db.Uuid
+  email       String   @unique @db.VarChar(255)
+  displayName String   @db.VarChar(255)
+  entraSub    String?  @unique @db.VarChar(255)
+  
+  roles       Role[]   @relation("UserRoles")
+  permissions Permission[] @relation("UserPermissions")
+
+  createdAt   DateTime @default(now()) @db.Timestamp(3)
+  updatedAt   DateTime @updatedAt @db.Timestamp(3)
+
+  @@map("users")
+  @@index([email])
+  @@index([entraSub])
+}
+
+model Role {
+  id          String   @id @db.Uuid
+  name        String   @unique @db.VarChar(100)
+  description String?  @db.Text
+  
+  users       User[]   @relation("UserRoles")
+
+  createdAt   DateTime @default(now()) @db.Timestamp(3)
+
+  @@map("roles")
+  @@index([name])
+}
+
+model Permission {
+  id          String   @id @db.Uuid
+  resource    String   @db.VarChar(100)
+  action      String   @db.VarChar(100)
+  description String?  @db.Text
+  
+  users       User[]   @relation("UserPermissions")
+
+  createdAt   DateTime @default(now()) @db.Timestamp(3)
+
+  @@unique([resource, action])
+  @@map("permissions")
+  @@index([resource])
+}
+
+model AuthLog {
+  id          String   @id @default(cuid())
+  userId      String?  @db.Uuid
+  email       String   @db.VarChar(255)
+  action      String   @db.VarChar(50)
+  result      String   @db.VarChar(50)
+  ipAddress   String?
+  userAgent   String?
+  details     Json?
+
+  createdAt   DateTime @default(now()) @db.Timestamp(3)
+
+  @@map("auth_logs")
+  @@index([userId])
+  @@index([email])
+  @@index([action])
+  @@index([createdAt])
+}
+
+// ============ AUDIT LOG ============
+model AuditLog {
+  id          String   @id @default(cuid())
+  entity      String
+  entityId    String
+  action      String   @db.VarChar(50)
+  changes     Json
+  userId      String   @db.Uuid
+  ipAddress   String?
+  userAgent   String?
+
+  createdAt   DateTime @default(now()) @db.Timestamp(3)
+
+  @@map("audit_logs")
+  @@index([entityId])
+  @@index([userId])
+  @@index([createdAt])
+}

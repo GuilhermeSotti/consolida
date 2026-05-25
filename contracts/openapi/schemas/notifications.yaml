@@ -1,0 +1,168 @@
+Notification:
+  type: object
+  properties:
+    id:
+      type: string
+      format: uuid
+    userId:
+      type: string
+      format: uuid
+    type:
+      type: string
+      enum:
+        - EXECUTION_COMPLETED
+        - EXECUTION_FAILED
+        - REPORT_READY
+        - PERMISSION_GRANTED
+        - SYSTEM_ALERT
+    title:
+      type: string
+    message:
+      type: string
+    data:
+      type: object
+      description: Contexto adicional relativo à notificação
+      nullable: true
+    read:
+      type: boolean
+      default: false
+    readAt:
+      type: string
+      format: date-time
+      nullable: true
+    createdAt:
+      type: string
+      format: date-time
+  required:
+    - id
+    - userId
+    - type
+    - title
+    - message
+    - read
+    - createdAt
+
+CreateNotificationRequest:
+  type: object
+  properties:
+    userId:
+      type: string
+      format: uuid
+    type:
+      type: string
+      enum:
+        - EXECUTION_COMPLETED
+        - EXECUTION_FAILED
+        - REPORT_READY
+        - PERMISSION_GRANTED
+        - SYSTEM_ALERT
+    title:
+      type: string
+      minLength: 1
+      maxLength: 255
+    message:
+      type: string
+      minLength: 1
+    data:
+      type: object
+      nullable: true
+  required:
+    - userId
+    - type
+    - title
+    - message
+
+MarkAsReadRequest:
+  type: object
+  properties:
+    read:
+      type: boolean
+  required:
+    - read
+
+NotificationPreferences:
+  type: object
+  properties:
+    userId:
+      type: string
+      format: uuid
+    emailNotifications:
+      type: boolean
+      default: true
+    pushNotifications:
+      type: boolean
+      default: true
+    notificationTypes:
+      type: object
+      properties:
+        executionCompleted:
+          type: boolean
+          default: true
+        executionFailed:
+          type: boolean
+          default: true
+        reportReady:
+          type: boolean
+          default: true
+        permissionGranted:
+          type: boolean
+          default: true
+        systemAlert:
+          type: boolean
+          default: true
+    quietHours:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+          default: false
+        startTime:
+          type: string
+          format: time
+        endTime:
+          type: string
+          format: time
+    updatedAt:
+      type: string
+      format: date-time
+  required:
+    - userId
+    - emailNotifications
+    - pushNotifications
+
+NotificationListResponse:
+  type: object
+  properties:
+    success:
+      type: boolean
+      enum: [true]
+    data:
+      type: array
+      items:
+        $ref: '#/components/schemas/Notification'
+    metadata:
+      type: object
+      properties:
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+        unreadCount:
+          type: integer
+  required:
+    - success
+    - data
+    - metadata
+
+BulkMarkAsReadRequest:
+  type: object
+  properties:
+    notificationIds:
+      type: array
+      items:
+        type: string
+        format: uuid
+      minItems: 1
+    read:
+      type: boolean
+  required:
+    - notificationIds
+    - read
