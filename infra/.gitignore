@@ -1,0 +1,29 @@
+# Terraform
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+*.tfvars
+!*.tfvars.example
+.env.docker
+
+# Kubernetes
+.kubeconfig
+kube-config
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Sensitive files
+.env
+.env.local
+*.pem
+*.key

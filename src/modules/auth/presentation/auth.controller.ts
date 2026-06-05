@@ -1,4 +1,5 @@
 import { Controller, Post, Body, Res, Get, UseGuards } from '@nestjs/common';
+import { Throttle, SkipThrottle } from '@nestjs/throttler';
 import { Response } from 'express';
 import { LoginDto } from '../application/dto/login.dto';
 import { MsalCallbackDto } from '../application/dto/msal-callback.dto';
@@ -17,6 +18,7 @@ export class AuthController {
     private readonly buildSession: BuildSessionUseCase,
   ) {}
 
+  @Throttle({ auth: { limit: 5, ttl: 60000 } })
   @Post('login')
   async login(@Body() loginDto: LoginDto, @Res() res: Response) {
     // This endpoint would typically redirect to Entra ID
@@ -28,6 +30,7 @@ export class AuthController {
     });
   }
 
+  @Throttle({ auth: { limit: 5, ttl: 60000 } })
   @Post('callback')
   async handleMsalCallback(
     @Body() callbackDto: MsalCallbackDto,
@@ -41,12 +44,14 @@ export class AuthController {
     });
   }
 
+  @Throttle({ auth: { limit: 5, ttl: 60000 } })
   @Post('validate-token')
   async validateToken(@Body('token') token: string) {
     const claims = await this.validateEntraToken.execute(token);
     return claims;
   }
 
+  @SkipThrottle()
   @Post('sync-user')
   async syncUser(
     @Body()

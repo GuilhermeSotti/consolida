@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: consolidahub-config
+  labels:
+    app: consolidahub
+data:
+  NODE_ENV: "production"
+  PORT: "3000"
+  LOG_LEVEL: "info"
+  CORS_ORIGIN_1: "https://app.consolidahub.com"
+  CORS_ORIGIN_2: "https://desktop.consolidahub.com"

@@ -16,6 +16,7 @@ enum Environment {
 }
 
 class EnvironmentVariables {
+  // ============ Server & Environment ============
   @IsEnum(Environment)
   @IsOptional()
   NODE_ENV: Environment = Environment.DEVELOPMENT;
@@ -24,24 +25,103 @@ class EnvironmentVariables {
   @IsOptional()
   PORT: number = 3000;
 
+  // ============ Database ============
   @IsString()
   DATABASE_URL: string;
 
-  @IsString()
   @IsOptional()
-  JWT_SECRET: string = 'your-secret-key-change-in-production';
+  @IsString()
+  DATABASE_POOL_MIN?: string = '2';
+
+  @IsOptional()
+  @IsString()
+  DATABASE_POOL_MAX?: string = '10';
+
+  // ============ Redis (Cache & Sessions) ============
+  @IsOptional()
+  @IsString()
+  REDIS_URL?: string;
+
+  // ============ JWT & Security ============
+  @IsString()
+  JWT_SECRET: string;
 
   @IsNumber()
   @IsOptional()
-  JWT_EXPIRATION: number = 3600;
+  JWT_EXPIRATION: number = 3600; // 1 hour
 
-  @IsUrl()
-  @IsOptional()
-  LOG_SERVICE_URL?: string;
+  // ============ Entra ID (Azure AD) Configuration ============
+  @IsString()
+  ENTRA_TENANT_ID: string;
 
   @IsString()
+  ENTRA_CLIENT_ID: string;
+
+  @IsString()
+  ENTRA_CLIENT_SECRET: string;
+
+  @IsUrl()
+  ENTRA_AUTHORITY: string; // e.g., https://login.microsoftonline.com/{tenantId}/v2.0
+
   @IsOptional()
+  @IsString()
+  ENTRA_REDIRECT_URI?: string;
+
+  // ============ Logging & Observability ============
+  @IsOptional()
+  @IsString()
   LOG_LEVEL: string = 'info';
+
+  @IsOptional()
+  @IsUrl()
+  LOG_SERVICE_URL?: string;
+
+  @IsOptional()
+  @IsString()
+  SENTRY_DSN?: string;
+
+  @IsOptional()
+  @IsString()
+  JAEGER_AGENT_HOST?: string = 'localhost';
+
+  @IsOptional()
+  @IsString()
+  JAEGER_AGENT_PORT?: string = '6831';
+
+  // ============ CORS ============
+  @IsOptional()
+  @IsString()
+  CORS_ORIGIN: string = 'http://localhost:3000';
+
+  // ============ Storage (Cloud) ============
+  @IsOptional()
+  @IsString()
+  STORAGE_TYPE?: string = 'local'; // 'local' | 'azure' | 's3'
+
+  @IsOptional()
+  @IsString()
+  STORAGE_CONNECTION_STRING?: string;
+
+  @IsOptional()
+  @IsString()
+  STORAGE_BUCKET?: string;
+
+  @IsOptional()
+  @IsString()
+  STORAGE_REGION?: string;
+
+  // ============ Secret Manager ============
+  @IsOptional()
+  @IsString()
+  SECRET_MANAGER_TYPE?: string = 'env'; // 'env' | 'azure' | 'aws'
+
+  @IsOptional()
+  @IsString()
+  AZURE_KEYVAULT_URL?: string;
+
+  @IsOptional()
+  @IsString()
+  AWS_SECRETS_MANAGER_REGION?: string;
 }
 
 export function validate(config: Record<string, unknown>) {

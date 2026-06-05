@@ -1,17 +1,43 @@
+import './infrastructure/observability/tracing';
+
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import helmet from 'helmet';
 
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
+import { StructuredLoggerService } from './observability/structured-logger.service';
+import { RequestLoggingInterceptor } from './observability/request-logging.interceptor';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
     bufferLogs: true,
   });
 
+  // Setup structured logger
+  const logger = app.get(StructuredLoggerService);
+  app.useLogger(logger);
+
   app.setGlobalPrefix('api/v1');
+
+  // Trust proxy for correct client IP in rate limiting
+  app.set('trust proxy', 1);
+
+  // Apply Helmet for security headers
+  app.use(helmet());
+
+  // Configure CORS for allowed origins
+  app.enableCors({
+    origin: [
+      process.env.CORS_ORIGIN_1 || 'http://localhost:3001',
+      process.env.CORS_ORIGIN_2 || 'http://localhost:3002',
+    ],
+    credentials: true,
+    methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-Id'],
+  });
 
   app.useGlobalPipes(
     new ValidationPipe({
@@ -25,7 +51,10 @@ async function bootstrap() {
   );
 
   app.useGlobalFilters(new AllExceptionsFilter());
-  app.useGlobalInterceptors(new ResponseInterceptor());
+  app.useGlobalInterceptors(
+    new ResponseInterceptor(),
+    app.get(RequestLoggingInterceptor),
+  );
 
   const swaggerConfig = new DocumentBuilder()
     .setTitle('ConsolidaHub API')
@@ -50,8 +79,8 @@ async function bootstrap() {
   const port = process.env.PORT ?? 3000;
   await app.listen(port, '0.0.0.0');
 
-  console.log(`ConsolidaHub API is running at http://localhost:${port}`);
-  console.log(`Swagger docs available at http://localhost:${port}/docs`);
+  logger.log(`ConsolidaHub API is running at http://localhost:${port}`, 'Bootstrap');
+  logger.log(`Swagger docs available at http://localhost:${port}/docs`, 'Bootstrap');
 }
 
 bootstrap().catch((error) => {

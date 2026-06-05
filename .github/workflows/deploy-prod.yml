@@ -1,0 +1,23 @@
+name: Deploy Prod
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: prod
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Authenticate with cluster
+        run: echo "configure your cloud auth here"
+
+      - name: Apply Kubernetes manifests
+        run: kubectl apply -k infra/k8s/overlays/prod

@@ -1,0 +1,28 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: consolidahub-api
+  labels:
+    app: consolidahub
+rules:
+# ConsolidaHub API should NOT have access to Kubernetes API
+# This role is intentionally empty to enforce least privilege
+# If future requirements demand API access, add specific rules only then
+- apiGroups: [""]
+  resources: [""]
+  verbs: []
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: consolidahub-api
+  labels:
+    app: consolidahub
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: consolidahub-api
+subjects:
+- kind: ServiceAccount
+  name: consolidahub-api
+  namespace: consolidahub

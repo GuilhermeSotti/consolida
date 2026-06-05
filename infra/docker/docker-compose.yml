@@ -1,0 +1,133 @@
+version: '3.8'
+
+services:
+  # ============ PostgreSQL Database ============
+  postgres:
+    image: postgres:16-alpine
+    container_name: consolidahub-postgres
+    environment:
+      POSTGRES_DB: ${DATABASE_NAME:-consolidahub}
+      POSTGRES_USER: ${DATABASE_USER:-consolidahub}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-consolidahub}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=en_US.UTF-8"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # Optional: Initialize with seed data
+      # - ./init-db.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DATABASE_USER:-consolidahub}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - consolidahub-network
+
+  # ============ Redis Cache & Session Store ============
+  redis:
+    image: redis:7-alpine
+    container_name: consolidahub-redis
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-consolidahub}
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - consolidahub-network
+
+  # ============ ConsolidaHub API ============
+  api:
+    build:
+      context: ../../
+      dockerfile: Dockerfile
+    container_name: consolidahub-api
+    env_file:
+      - ../../.env
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://${DATABASE_USER:-consolidahub}:${DATABASE_PASSWORD:-consolidahub}@postgres:5432/${DATABASE_NAME:-consolidahub}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-consolidahub}@redis:6379/0
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ../../src:/app/src
+      - ../../prisma:/app/prisma
+    networks:
+      - consolidahub-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ============ Optional: pgAdmin for DB Management ============
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: consolidahub-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@consolidahub.local
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres
+    networks:
+      - consolidahub-network
+
+  # ============ Optional: Redis Commander for Cache Inspection ============
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: consolidahub-redis-commander
+    environment:
+      REDIS_HOSTS: local:redis:6379:0:${REDIS_PASSWORD:-consolidahub}
+    ports:
+      - "8081:8081"
+    depends_on:
+      - redis
+    networks:
+      - consolidahub-network
+
+  # ============ OpenTelemetry Collector ============
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    container_name: consolidahub-otel-collector
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    volumes:
+      - ../../infra/otel/collector.yaml:/etc/otelcol-contrib/config.yaml
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+      - "8888:8888"   # Prometheus metrics
+      - "8889:8889"   # Prometheus exporter
+    environment:
+      GOGC: "80"
+    depends_on:
+      - api
+    networks:
+      - consolidahub-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8888/metrics"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  consolidahub-network:
+    driver: bridge

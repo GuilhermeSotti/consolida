@@ -1,0 +1,65 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: consolidahub-api
+  labels:
+    app: consolidahub
+spec:
+  podSelector:
+    matchLabels:
+      app: consolidahub
+      component: api
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Allow from ingress controller
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: ingress-nginx
+    ports:
+    - protocol: TCP
+      port: 3000
+  # Allow from prometheus for metrics
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+    ports:
+    - protocol: TCP
+      port: 3000
+  egress:
+  # Allow to PostgreSQL database
+  - to:
+    - podSelector:
+        matchLabels:
+          app: consolidahub
+          component: postgres
+    ports:
+    - protocol: TCP
+      port: 5432
+  # Allow to Redis cache
+  - to:
+    - podSelector:
+        matchLabels:
+          app: consolidahub
+          component: redis
+    ports:
+    - protocol: TCP
+      port: 6379
+  # Allow DNS
+  - to:
+    - namespaceSelector: {}
+      podSelector:
+        matchLabels:
+          k8s-app: kube-dns
+    ports:
+    - protocol: UDP
+      port: 53
+  # Allow HTTPS outbound (for external APIs)
+  - to:
+    - namespaceSelector: {}
+    ports:
+    - protocol: TCP
+      port: 443

@@ -1,5 +1,5 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
+// ConsolidaHub - Prisma Schema
+// Complete data model for Auth, RBAC, Rules, Sources, Executions, Reports, Notifications
 
 generator client {
   provider = "prisma-client-js"
@@ -10,9 +10,178 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ============ AUTHENTICATION & AUTHORIZATION ============
+
+/// Core user entity linked to Entra ID and internal system
+model User {
+  id              String   @id @default(uuid()) @db.Uuid
+  email           String   @unique @db.VarChar(255)
+  displayName     String?  @db.VarChar(255)
+  isActive        Boolean  @default(true)
+  lastLoginAt     DateTime?
+  createdAt       DateTime @default(now()) @db.Timestamp(3)
+  updatedAt       DateTime @updatedAt @db.Timestamp(3)
+
+  // Relations
+  identities      ExternalIdentity[]
+  roles           UserRole[]
+  sessions        UserSession[]
+  auditLogs       AuditLog[] @relation("AuditActor")
+
+  @@map("users")
+  @@index([email])
+  @@index([isActive])
+  @@index([createdAt])
+}
+
+/// External identity provider mapping (Entra ID, etc)
+model ExternalIdentity {
+  id          String   @id @default(uuid()) @db.Uuid
+  provider    String   @db.VarChar(50) // "entra", "local", etc
+  tenantId    String   @db.VarChar(255)
+  subject     String   @db.VarChar(255) // oid/sub from token
+  email       String?  @db.VarChar(255)
+  userId      String   @db.Uuid
+  createdAt   DateTime @default(now()) @db.Timestamp(3)
+  updatedAt   DateTime @updatedAt @db.Timestamp(3)
+
+  // Relations
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, tenantId, subject])
+  @@map("external_identities")
+  @@index([provider])
+  @@index([userId])
+}
+
+/// Role - collection of permissions
+model Role {
+  id          String   @id @default(uuid()) @db.Uuid
+  code        String   @unique @db.VarChar(100)
+  name        String   @db.VarChar(255)
+  description String?  @db.Text
+  createdAt   DateTime @default(now()) @db.Timestamp(3)
+  updatedAt   DateTime @updatedAt @db.Timestamp(3)
+
+  // Relations
+  users       UserRole[]
+  permissions RolePermission[]
+
+  @@map("roles")
+  @@index([code])
+}
+
+/// Permission - granular access control
+model Permission {
+  id          String   @id @default(uuid()) @db.Uuid
+  code        String   @unique @db.VarChar(100)
+  name        String   @db.VarChar(255)
+  description String?  @db.Text
+  createdAt   DateTime @default(now()) @db.Timestamp(3)
+  updatedAt   DateTime @updatedAt @db.Timestamp(3)
+
+  // Relations
+  roles       RolePermission[]
+
+  @@map("permissions")
+  @@index([code])
+}
+
+/// Many-to-many: User to Role
+model UserRole {
+  userId      String   @db.Uuid
+  roleId      String   @db.Uuid
+  createdAt   DateTime @default(now()) @db.Timestamp(3)
+
+  // Relations
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role        Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+  @@map("user_roles")
+  @@index([userId])
+  @@index([roleId])
+}
+
+/// Many-to-many: Role to Permission
+model RolePermission {
+  roleId       String   @db.Uuid
+  permissionId String   @db.Uuid
+  createdAt    DateTime @default(now()) @db.Timestamp(3)
+
+  // Relations
+  role         Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+  @@index([roleId])
+  @@index([permissionId])
+}
+
+/// User session for token and revocation management
+model UserSession {
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String   @db.Uuid
+  tokenJti     String   @unique @db.VarChar(255)
+  expiresAt    DateTime
+  revokedAt    DateTime?
+  createdAt    DateTime @default(now()) @db.Timestamp(3)
+
+  // Relations
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_sessions")
+  @@index([userId])
+  @@index([expiresAt])
+  @@index([revokedAt])
+}
+
+/// Comprehensive audit log for sensitive actions with full correlation
+model AuditLog {
+  id          String   @id @default(uuid()) @db.Uuid
+  
+  // Correlation IDs for tracing
+  requestId   String?  @db.VarChar(255)
+  traceId     String?  @db.VarChar(255)
+  spanId      String?  @db.VarChar(255)
+
+  // Actor information
+  actorUserId String?  @db.Uuid
+  actorEmail  String?  @db.VarChar(255)
+
+  // Action details
+  action      String   @db.VarChar(100)
+  entity      String   @db.VarChar(100)
+  entityId    String?  @db.Uuid
+  status      String   @db.VarChar(50) // "SUCCESS", "FAILURE"
+  durationMs  Int?
+
+  // Request context
+  ipAddress   String?  @db.VarChar(45)
+  userAgent   String?  @db.Text
+
+  // Additional metadata
+  metadata    Json?
+
+  createdAt   DateTime @default(now()) @db.Timestamp(3)
+
+  // Relations
+  actor       User?    @relation("AuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@map("audit_logs")
+  @@index([actorUserId, createdAt])
+  @@index([entity, entityId])
+  @@index([action, createdAt])
+  @@index([requestId])
+  @@index([traceId])
+  @@index([createdAt])
+}
+
 // ============ RULES ============
+
 model Rule {
-  id          String   @id @db.Uuid
+  id          String   @id @default(uuid()) @db.Uuid
   name        String   @db.VarChar(255)
   description String?  @db.Text
   version     Int      @default(1)
@@ -35,69 +204,91 @@ model Rule {
   @@index([createdBy])
 }
 
-// ============ AUTHENTICATION & AUTHORIZATION ============
-model User {
-  id          String   @id @db.Uuid
-  email       String   @unique @db.VarChar(255)
-  displayName String   @db.VarChar(255)
-  entraSub    String?  @unique @db.VarChar(255)
-  
-  roles       Role[]   @relation("UserRoles")
-  permissions Permission[] @relation("UserPermissions")
+// ============ SOURCES ============
 
+model Source {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String   @db.VarChar(255)
+  description String?  @db.Text
+  type        String   @db.VarChar(100) // "database", "api", "file", etc
+  status      String   @db.VarChar(50)
+  config      Json
+  
+  createdBy   String   @db.Uuid
+  updatedBy   String?  @db.Uuid
+  
   createdAt   DateTime @default(now()) @db.Timestamp(3)
   updatedAt   DateTime @updatedAt @db.Timestamp(3)
 
-  @@map("users")
-  @@index([email])
-  @@index([entraSub])
-}
-
-model Role {
-  id          String   @id @db.Uuid
-  name        String   @unique @db.VarChar(100)
-  description String?  @db.Text
-  
-  users       User[]   @relation("UserRoles")
-
-  createdAt   DateTime @default(now()) @db.Timestamp(3)
-
-  @@map("roles")
-  @@index([name])
-}
-
-model Permission {
-  id          String   @id @db.Uuid
-  resource    String   @db.VarChar(100)
-  action      String   @db.VarChar(100)
-  description String?  @db.Text
-  
-  users       User[]   @relation("UserPermissions")
-
-  createdAt   DateTime @default(now()) @db.Timestamp(3)
-
-  @@unique([resource, action])
-  @@map("permissions")
-  @@index([resource])
-}
-
-model AuthLog {
-  id          String   @id @default(cuid())
-  userId      String?  @db.Uuid
-  email       String   @db.VarChar(255)
-  action      String   @db.VarChar(50)
-  result      String   @db.VarChar(50)
-  ipAddress   String?
-  userAgent   String?
-  details     Json?
-
-  createdAt   DateTime @default(now()) @db.Timestamp(3)
-
-  @@map("auth_logs")
-  @@index([userId])
-  @@index([email])
-  @@index([action])
+  @@map("sources")
+  @@index([type])
+  @@index([status])
   @@index([createdAt])
+}
+
+// ============ EXECUTIONS ============
+
+model Execution {
+  id          String   @id @default(uuid()) @db.Uuid
+  ruleId      String   @db.Uuid
+  sourceId    String   @db.Uuid
+  status      String   @db.VarChar(50) // "pending", "running", "completed", "failed"
+  result      Json?
+  errorMessage String?
+  
+  startedAt   DateTime?
+  completedAt DateTime?
+  
+  createdAt   DateTime @default(now()) @db.Timestamp(3)
+  updatedAt   DateTime @updatedAt @db.Timestamp(3)
+
+  @@map("executions")
+  @@index([ruleId])
+  @@index([sourceId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+// ============ REPORTS ============
+
+model Report {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String   @db.VarChar(255)
+  description String?  @db.Text
+  type        String   @db.VarChar(100) // "consolidated", "analysis", etc
+  status      String   @db.VarChar(50)
+  
+  data        Json?
+  
+  createdBy   String   @db.Uuid
+  
+  createdAt   DateTime @default(now()) @db.Timestamp(3)
+  updatedAt   DateTime @updatedAt @db.Timestamp(3)
+
+  @@map("reports")
+  @@index([type])
+  @@index([status])
+  @@index([createdBy])
+  @@index([createdAt])
+}
+
+// ============ NOTIFICATIONS ============
+
+model Notification {
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String   @db.Uuid
+  type        String   @db.VarChar(100) // "alert", "info", "success", "error"
+  title       String   @db.VarChar(255)
+  message     String   @db.Text
+  readAt      DateTime?
+  
+  createdAt   DateTime @default(now()) @db.Timestamp(3)
+
+  @@map("notifications")
+  @@index([userId])
+  @@index([readAt])
+  @@index([createdAt])
+}
 }
 
 // ============ AUDIT LOG ============
