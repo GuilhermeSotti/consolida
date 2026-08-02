@@ -23,7 +23,8 @@ async function bootstrap() {
   app.setGlobalPrefix('api/v1');
 
   // Trust proxy for correct client IP in rate limiting
-  app.set('trust proxy', 1);
+  const server = app.getHttpServer();
+  server.set('trust proxy', 1);
 
   // Apply Helmet for security headers
   app.use(helmet());

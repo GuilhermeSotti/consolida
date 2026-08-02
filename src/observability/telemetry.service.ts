@@ -1,15 +1,21 @@
 import { Injectable } from '@nestjs/common';
-import { trace, SpanStatusCode } from '@opentelemetry/api';
+// TODO: OpenTelemetry not yet installed
+// import { trace, SpanStatusCode } from '@opentelemetry/api';
 
 @Injectable()
 export class TelemetryService {
-  private readonly tracer = trace.getTracer('consolidahub-api');
+  // Placeholder implementation - OpenTelemetry disabled
+  private readonly tracer = null; // trace.getTracer('consolidahub-api');
 
   async withSpan<T>(
     name: string,
     attributes: Record<string, unknown> = {},
     fn: () => Promise<T>,
   ): Promise<T> {
+    // For now, just execute the function without tracing
+    return fn();
+    
+    /*
     return new Promise((resolve, reject) => {
       const span = this.tracer.startSpan(name, { attributes });
 
@@ -35,5 +41,6 @@ export class TelemetryService {
           reject(error);
         });
     });
+    */
   }
 }

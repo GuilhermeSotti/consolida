@@ -1,31 +1,31 @@
 import { RuleStatus } from '../enums/rule-status.enum';
 
 export class RuleEntity {
-  id: string;
+  id!: string;
 
-  name: string;
+  name!: string;
 
   description?: string;
 
-  version: number;
+  version!: number;
 
-  status: RuleStatus;
+  status!: RuleStatus;
 
-  sourceIds: string[];
+  sourceIds!: string[];
 
-  conditions: Record<string, unknown>;
+  conditions!: Record<string, unknown>;
 
-  actions: Record<string, unknown>;
+  actions!: Record<string, unknown>;
 
-  priority: number;
+  priority!: number;
 
-  createdBy: string;
+  createdBy!: string;
 
   updatedBy?: string;
 
-  createdAt: Date;
+  createdAt!: Date;
 
-  updatedAt: Date;
+  updatedAt!: Date;
 
   deactivate() {
     this.status = RuleStatus.INACTIVE;

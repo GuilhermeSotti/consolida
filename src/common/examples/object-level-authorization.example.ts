@@ -1,7 +1,12 @@
-import { Controller, Get, Param, ForbiddenException, NotFoundException, UseGuards } from '@nestjs/common';
+import { Controller, Get, Delete, Patch, Param, Body, ForbiddenException, NotFoundException, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { CurrentUser } from '../auth/presentation/decorators/current-user.decorator';
-import { User } from '../auth/domain/user.entity';
+import { CurrentUser } from '../../modules/auth/presentation/decorators/current-user.decorator';
+
+type ExampleUser = {
+  id: string;
+  permissions?: string[];
+  roles?: string[];
+};
 
 /**
  * Exemplo de implementação de validação por objeto (BOLA prevention)
@@ -31,7 +36,7 @@ export class RulesControllerExample {
   @Get(':id')
   async getRule(
     @Param('id') id: string,
-    @CurrentUser() currentUser: User,
+    @CurrentUser() currentUser: ExampleUser,
   ) {
     // Step 1: Buscar recurso
     const rule = await this.rulesService.findById(id);
@@ -61,7 +66,7 @@ export class RulesControllerExample {
   @Delete(':id')
   async deleteRule(
     @Param('id') id: string,
-    @CurrentUser() currentUser: User,
+    @CurrentUser() currentUser: ExampleUser,
   ) {
     const rule = await this.rulesService.findById(id);
     
@@ -91,7 +96,7 @@ export class RulesControllerExample {
   async updateRule(
     @Param('id') id: string,
     @Body() updateData: any,
-    @CurrentUser() currentUser: User,
+    @CurrentUser() currentUser: ExampleUser,
   ) {
     const rule = await this.rulesService.findById(id);
     

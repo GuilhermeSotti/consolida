@@ -13,7 +13,8 @@ import { ActivateRuleUseCase } from './application/use-cases/activate-rule.use-c
 import { RulesRepository } from './domain/repositories/rules.repository';
 
 import { PrismaRulesRepository } from './infrastructure/persistence/prisma-rules.repository';
-import { PrismaService } from '../shared/infrastructure/prisma/prisma.service';
+import { PrismaService } from '@shared/infrastructure/prisma/prisma.service';
+import { RuleApplierService } from './application/services/rule-applier.service';
 
 @Module({
   controllers: [RulesController],
@@ -26,6 +27,7 @@ import { PrismaService } from '../shared/infrastructure/prisma/prisma.service';
     DeactivateRuleUseCase,
     GetRuleVersionsUseCase,
     ActivateRuleUseCase,
+    RuleApplierService,
 
     {
       provide: RulesRepository,
@@ -35,6 +37,6 @@ import { PrismaService } from '../shared/infrastructure/prisma/prisma.service';
     PrismaService,
   ],
 
-  exports: [RulesRepository],
+  exports: [RulesRepository, RuleApplierService],
 })
 export class RulesModule {}

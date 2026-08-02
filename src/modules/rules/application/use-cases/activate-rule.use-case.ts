@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 
 import { RulesRepository } from '../../domain/repositories/rules.repository';
+import { RuleStatus } from '../../domain/enums/rule-status.enum';
 
 @Injectable()
 export class ActivateRuleUseCase {
@@ -13,7 +14,7 @@ export class ActivateRuleUseCase {
       throw new NotFoundException('Rule not found');
     }
 
-    rule.status = 'ACTIVE';
+    rule.status = RuleStatus.ACTIVE;
     rule.updatedAt = new Date();
 
     await this.repository.update(rule);

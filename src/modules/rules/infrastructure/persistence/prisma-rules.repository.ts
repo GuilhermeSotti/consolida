@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import type { Rule } from '@prisma/client';
 import { Prisma } from '@prisma/client';
 
-import { PrismaService } from '../../../shared/infrastructure/prisma/prisma.service';
+import { PrismaService } from '@shared/infrastructure/prisma/prisma.service';
 
 import { RuleEntity } from '../../domain/entities/rule.entity';
 import { RulesRepository } from '../../domain/repositories/rules.repository';
@@ -20,8 +20,8 @@ export class PrismaRulesRepository implements RulesRepository {
         version: rule.version,
         status: rule.status,
         sourceIds: rule.sourceIds,
-        conditions: rule.conditions,
-        actions: rule.actions,
+        conditions: JSON.parse(JSON.stringify(rule.conditions || {})) as Prisma.JsonObject,
+        actions: JSON.parse(JSON.stringify(rule.actions || {})) as Prisma.JsonObject,
         priority: rule.priority,
         createdBy: rule.createdBy,
         createdAt: rule.createdAt,
@@ -43,8 +43,8 @@ export class PrismaRulesRepository implements RulesRepository {
         version: rule.version,
         status: rule.status,
         sourceIds: rule.sourceIds,
-        conditions: rule.conditions,
-        actions: rule.actions,
+        conditions: JSON.parse(JSON.stringify(rule.conditions || {})) as Prisma.JsonObject,
+        actions: JSON.parse(JSON.stringify(rule.actions || {})) as Prisma.JsonObject,
         priority: rule.priority,
         updatedBy: rule.updatedBy,
         updatedAt: rule.updatedAt,
@@ -179,15 +179,15 @@ export class PrismaRulesRepository implements RulesRepository {
 
     rule.id = raw.id;
     rule.name = raw.name;
-    rule.description = raw.description;
+    rule.description = raw.description ?? undefined;
     rule.version = raw.version;
-    rule.status = raw.status;
+    rule.status = raw.status as RuleEntity['status'];
     rule.sourceIds = raw.sourceIds || [];
-    rule.conditions = raw.conditions || {};
-    rule.actions = raw.actions || {};
+    rule.conditions = (raw.conditions ? JSON.parse(JSON.stringify(raw.conditions)) : {}) as Record<string, unknown>;
+    rule.actions = (raw.actions ? JSON.parse(JSON.stringify(raw.actions)) : {}) as Record<string, unknown>;
     rule.priority = raw.priority || 0;
     rule.createdBy = raw.createdBy;
-    rule.updatedBy = raw.updatedBy;
+    rule.updatedBy = raw.updatedBy ?? undefined;
     rule.createdAt = raw.createdAt;
     rule.updatedAt = raw.updatedAt;
 

@@ -22,7 +22,7 @@ export class CreateRuleDto {
   @IsNotEmpty()
   @MaxLength(255)
   @MinLength(1)
-  name: string;
+  name!: string;
 
   @ApiProperty({
     example: 'Valida se o cadastro contém todos os campos obrigatórios.',
@@ -41,7 +41,7 @@ export class CreateRuleDto {
   })
   @IsArray()
   @IsNotEmpty()
-  sourceIds: string[];
+  sourceIds!: string[];
 
   @ApiProperty({
     type: Object,
@@ -55,7 +55,7 @@ export class CreateRuleDto {
   })
   @IsObject()
   @IsNotEmpty()
-  conditions: Record<string, unknown>;
+  conditions!: Record<string, unknown>;
 
   @ApiProperty({
     type: Object,
@@ -67,7 +67,7 @@ export class CreateRuleDto {
   })
   @IsObject()
   @IsNotEmpty()
-  actions: Record<string, unknown>;
+  actions!: Record<string, unknown>;
 
   @ApiProperty({
     example: 0,

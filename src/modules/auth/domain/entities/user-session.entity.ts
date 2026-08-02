@@ -1,12 +1,12 @@
 import { UserRole } from '../enums/user-role.enum';
 
 export class UserSessionEntity {
-  id: string;
-  email: string;
-  displayName: string;
-  entraSub: string;
-  roles: UserRole[];
-  permissions: string[];
+  id!: string;
+  email!: string;
+  displayName!: string;
+  entraSub!: string;
+  roles!: UserRole[];
+  permissions!: string[];
 
   constructor(data: Partial<UserSessionEntity>) {
     Object.assign(this, data);

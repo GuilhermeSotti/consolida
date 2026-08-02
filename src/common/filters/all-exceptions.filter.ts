@@ -39,7 +39,8 @@ export class AllExceptionsFilter implements ExceptionFilter {
       message =
         typeof body === 'string'
           ? body
-          : body.message ?? exception.message ?? message;
+          : (Array.isArray(body.message) ? body.message[0] : body.message) ?? 
+            exception.message ?? message;
 
       if (typeof body !== 'string') {
         code = body.code ?? this.getCodeFromStatus(status);

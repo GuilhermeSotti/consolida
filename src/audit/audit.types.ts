@@ -6,5 +6,5 @@ export type AuditInput = {
   entityId?: string;
   status: AuditStatus;
   durationMs?: number;
-  metadata?: Record<string, unknown>;
+  metadata?: unknown;
 };

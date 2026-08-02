@@ -1,0 +1,13 @@
+{
+  "id": "source-sql-1",
+  "name": "SQL Sample",
+  "type": "sql",
+  "status": "ACTIVE",
+  "config": {
+    "host": "localhost",
+    "port": 5432,
+    "database": "sampledb",
+    "user": "sample",
+    "password": "secret"
+  }
+}

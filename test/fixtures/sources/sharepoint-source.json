@@ -1,0 +1,10 @@
+{
+  "id": "source-sharepoint-1",
+  "name": "SharePoint Sample",
+  "type": "sharepoint",
+  "status": "ACTIVE",
+  "config": {
+    "fileUrl": "https://example.com/files/sample.xlsx",
+    "accessToken": "token-placeholder"
+  }
+}

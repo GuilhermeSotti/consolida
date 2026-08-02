@@ -27,7 +27,7 @@ class EnvironmentVariables {
 
   // ============ Database ============
   @IsString()
-  DATABASE_URL: string;
+  DATABASE_URL!: string;
 
   @IsOptional()
   @IsString()
@@ -44,7 +44,7 @@ class EnvironmentVariables {
 
   // ============ JWT & Security ============
   @IsString()
-  JWT_SECRET: string;
+  JWT_SECRET!: string;
 
   @IsNumber()
   @IsOptional()
@@ -52,16 +52,16 @@ class EnvironmentVariables {
 
   // ============ Entra ID (Azure AD) Configuration ============
   @IsString()
-  ENTRA_TENANT_ID: string;
+  ENTRA_TENANT_ID!: string;
 
   @IsString()
-  ENTRA_CLIENT_ID: string;
+  ENTRA_CLIENT_ID!: string;
 
   @IsString()
-  ENTRA_CLIENT_SECRET: string;
+  ENTRA_CLIENT_SECRET!: string;
 
   @IsUrl()
-  ENTRA_AUTHORITY: string; // e.g., https://login.microsoftonline.com/{tenantId}/v2.0
+  ENTRA_AUTHORITY!: string; // e.g., https://login.microsoftonline.com/{tenantId}/v2.0
 
   @IsOptional()
   @IsString()

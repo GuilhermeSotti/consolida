@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { PrismaService } from '../shared/prisma/prisma.service';
+import { PrismaService } from '../shared/infrastructure/prisma/prisma.service';
 import { RequestContextService } from '../observability/request-context.service';
 import { AuditInput } from './audit.types';
 
@@ -28,7 +28,7 @@ export class AuditService {
           durationMs: input.durationMs,
           ipAddress: ctx?.ip,
           userAgent: ctx?.userAgent,
-          metadata: input.metadata ?? {},
+          metadata: (input.metadata ? JSON.parse(JSON.stringify(input.metadata)) : { source: 'ui' }) as never,
         },
       });
     } catch (error) {

@@ -1,0 +1,9 @@
+{
+  "id": "source-excel-1",
+  "name": "Excel Local Sample",
+  "type": "excel",
+  "status": "ACTIVE",
+  "config": {
+    "filePath": "./test/fixtures/data/sample.xlsx"
+  }
+}

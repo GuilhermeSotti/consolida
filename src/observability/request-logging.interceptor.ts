@@ -23,25 +23,25 @@ export class RequestLoggingInterceptor implements NestInterceptor {
     return next.handle().pipe(
       tap((_response) => {
         const ctx = this.context.get();
-        this.logger.log('request_completed', {
+        this.logger.log('request_completed', JSON.stringify({
           status: 'success',
           durationMs: Date.now() - start,
           path: req.originalUrl,
           method: req.method,
           statusCode: context.switchToHttp().getResponse().statusCode,
           userId: ctx?.userId,
-        });
+        }));
       }),
       catchError((error) => {
         const ctx = this.context.get();
-        this.logger.error('request_failed', error?.stack, {
+        this.logger.error('request_failed', error?.stack, JSON.stringify({
           status: 'error',
           durationMs: Date.now() - start,
           path: req.originalUrl,
           method: req.method,
           userId: ctx?.userId,
           errorMessage: error?.message,
-        });
+        }));
         return throwError(() => error);
       }),
     );

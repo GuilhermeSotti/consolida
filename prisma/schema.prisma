@@ -219,11 +219,134 @@ model Source {
   
   createdAt   DateTime @default(now()) @db.Timestamp(3)
   updatedAt   DateTime @updatedAt @db.Timestamp(3)
+  // Relations
+  dataTables  DataTable[]
 
   @@map("sources")
   @@index([type])
   @@index([status])
   @@index([createdAt])
+}
+
+// ============ CONFIGURATION & MULTIBASE ENTITIES ============
+
+model Multibase1 {
+  id          String   @id @default(uuid()) @db.Uuid
+  code        String   @db.VarChar(100)
+  name        String   @db.VarChar(255)
+  description String?  @db.Text
+
+  multibaseXs MultibaseX[]
+
+  createdAt   DateTime @default(now()) @db.Timestamp(3)
+  updatedAt   DateTime @updatedAt @db.Timestamp(3)
+
+  @@map("multibase1")
+  @@index([code])
+}
+
+model MultibaseX {
+  id            String    @id @default(uuid()) @db.Uuid
+  code          String    @db.VarChar(100)
+  name          String    @db.VarChar(255)
+  description   String?   @db.Text
+  multibase1Id  String?   @db.Uuid
+
+  bases         DataBase[]
+  multibase1    Multibase1? @relation(fields: [multibase1Id], references: [id], onDelete: SetNull)
+
+  createdAt     DateTime  @default(now()) @db.Timestamp(3)
+  updatedAt     DateTime  @updatedAt @db.Timestamp(3)
+
+  @@map("multibasex")
+  @@index([code])
+  @@index([multibase1Id])
+}
+
+model DataBase {
+  id           String    @id @default(uuid()) @db.Uuid
+  code         String    @db.VarChar(100)
+  name         String    @db.VarChar(255)
+  multibaseXId String?   @db.Uuid
+
+  dataTables   DataTable[]
+  multibaseX   MultibaseX? @relation(fields: [multibaseXId], references: [id], onDelete: SetNull)
+
+  createdAt    DateTime  @default(now()) @db.Timestamp(3)
+  updatedAt    DateTime  @updatedAt @db.Timestamp(3)
+
+  @@map("databases")
+  @@index([code])
+  @@index([multibaseXId])
+}
+
+model DataTable {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String   @db.VarChar(255)
+  code        String   @db.VarChar(100)
+  dataBaseId  String?  @db.Uuid
+  sourceId    String?  @db.Uuid
+  metadata    Json?
+
+  dataBase    DataBase? @relation(fields: [dataBaseId], references: [id], onDelete: SetNull)
+  source      Source?   @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+
+  createdAt   DateTime @default(now()) @db.Timestamp(3)
+  updatedAt   DateTime @updatedAt @db.Timestamp(3)
+
+  @@map("data_tables")
+  @@index([code])
+  @@index([dataBaseId])
+  @@index([sourceId])
+}
+
+model Phase {
+  id              String   @id @default(uuid()) @db.Uuid
+  name            String   @db.VarChar(255)
+  description     String?  @db.Text
+  order           Int      @default(0)
+  configurationId String?  @db.Uuid
+
+  configuration   Configuration? @relation(fields: [configurationId], references: [id], onDelete: Cascade)
+
+  createdAt       DateTime @default(now()) @db.Timestamp(3)
+  updatedAt       DateTime @updatedAt @db.Timestamp(3)
+
+  @@map("phases")
+  @@index([configurationId])
+  @@index([order])
+}
+
+model Configuration {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String   @db.VarChar(255)
+  description String?  @db.Text
+  isActive    Boolean  @default(true)
+
+  phases      Phase[]
+  versions    ConfigurationVersion[]
+
+  createdAt   DateTime @default(now()) @db.Timestamp(3)
+  updatedAt   DateTime @updatedAt @db.Timestamp(3)
+
+  @@map("configurations")
+  @@index([isActive])
+}
+
+model ConfigurationVersion {
+  id              String   @id @default(uuid()) @db.Uuid
+  configurationId String   @db.Uuid
+  version         Int      @default(1)
+  data            Json
+  createdBy       String?  @db.Uuid
+
+  configuration   Configuration @relation(fields: [configurationId], references: [id], onDelete: Cascade)
+
+  createdAt       DateTime @default(now()) @db.Timestamp(3)
+
+  @@map("configuration_versions")
+  @@index([configurationId])
+  @@index([version])
 }
 
 // ============ EXECUTIONS ============
@@ -289,23 +412,5 @@ model Notification {
   @@index([readAt])
   @@index([createdAt])
 }
-}
 
-// ============ AUDIT LOG ============
-model AuditLog {
-  id          String   @id @default(cuid())
-  entity      String
-  entityId    String
-  action      String   @db.VarChar(50)
-  changes     Json
-  userId      String   @db.Uuid
-  ipAddress   String?
-  userAgent   String?
-
-  createdAt   DateTime @default(now()) @db.Timestamp(3)
-
-  @@map("audit_logs")
-  @@index([entityId])
-  @@index([userId])
-  @@index([createdAt])
-}
+// End of schema

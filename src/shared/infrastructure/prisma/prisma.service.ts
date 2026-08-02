@@ -22,8 +22,14 @@ export class PrismaService
     this.setupEventListeners();
   }
 
+  private registerEventListener(eventName: string, callback: (event: any) => void): void {
+    (this as unknown as {
+      $on: (event: string, handler: (event: any) => void) => void;
+    }).$on(eventName, callback);
+  }
+
   private setupEventListeners(): void {
-    this.$on('query', (e: any) => {
+    this.registerEventListener('query', (e: any) => {
       if (this.logger) {
         this.logger.debug('prisma_query', {
           durationMs: e.duration,
@@ -34,7 +40,7 @@ export class PrismaService
       }
     });
 
-    this.$on('info', (_e: any) => {
+    this.registerEventListener('info', (_e: any) => {
       if (this.logger) {
         this.logger.log('prisma_info', {
           context: 'PrismaService',
@@ -42,7 +48,7 @@ export class PrismaService
       }
     });
 
-    this.$on('warn', (e: any) => {
+    this.registerEventListener('warn', (e: any) => {
       if (this.logger) {
         this.logger.warn(e.message, {
           context: 'PrismaService',
@@ -50,7 +56,7 @@ export class PrismaService
       }
     });
 
-    this.$on('error', (e: any) => {
+    this.registerEventListener('error', (e: any) => {
       if (this.logger) {
         this.logger.error(e.message, e.stack, {
           context: 'PrismaService',

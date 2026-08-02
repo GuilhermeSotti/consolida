@@ -4,6 +4,7 @@ import { randomUUID } from 'crypto';
 import { CreateRuleDto } from '../dto/create-rule.dto';
 import { RuleEntity } from '../../domain/entities/rule.entity';
 import { RulesRepository } from '../../domain/repositories/rules.repository';
+import { RuleStatus } from '../../domain/enums/rule-status.enum';
 
 @Injectable()
 export class CreateRuleUseCase {
@@ -16,7 +17,7 @@ export class CreateRuleUseCase {
     rule.name = dto.name;
     rule.description = dto.description;
     rule.version = 1;
-    rule.status = dto.status || 'ACTIVE';
+    rule.status = dto.status || RuleStatus.ACTIVE;
     rule.sourceIds = dto.sourceIds;
     rule.conditions = dto.conditions;
     rule.actions = dto.actions;

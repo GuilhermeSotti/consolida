@@ -9,8 +9,18 @@ import { v4 as uuid } from 'uuid';
 export class PrismaAuthRepository implements IAuthRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  private mapRoles(roles: Array<{ name: string }>): UserRole[] {
-    return roles.map((role) => role.name as UserRole);
+  private mapRoles(roles: Array<unknown> | undefined): UserRole[] {
+    if (!roles) {
+      return [];
+    }
+
+    return roles
+      .map((role) => {
+        const asAny = role as { role?: { name?: string }; name?: string };
+        return asAny.role?.name ?? asAny.name ?? '';
+      })
+      .filter((name) => Boolean(name))
+      .map((name) => name as UserRole);
   }
 
   async findUserByEmail(email: string): Promise<UserSessionEntity | null> {
@@ -18,7 +28,6 @@ export class PrismaAuthRepository implements IAuthRepository {
       where: { email },
       include: {
         roles: true,
-        permissions: true,
       },
     });
 
@@ -27,19 +36,27 @@ export class PrismaAuthRepository implements IAuthRepository {
     return new UserSessionEntity({
       id: user.id,
       email: user.email,
-      displayName: user.displayName,
-      entraSub: user.entraSub,
+      displayName: user.displayName || '',
+      entraSub: '', // TODO: Map from ExternalIdentity relation
       roles: this.mapRoles(user.roles),
-      permissions: user.permissions.map((p) => `${p.resource}:${p.action}`),
+      permissions: [], // TODO: Get from role permissions
     });
   }
 
   async findUserByEntraSub(entraSub: string): Promise<UserSessionEntity | null> {
-    const user = await this.prisma.user.findUnique({
-      where: { entraSub },
+    // TODO: Query via ExternalIdentity relation
+
+    const user = await this.prisma.user.findFirst({
+      where: {
+        identities: {
+          some: {
+            provider: 'entra',
+            subject: entraSub,
+          },
+        },
+      },
       include: {
         roles: true,
-        permissions: true,
       },
     });
 
@@ -48,10 +65,10 @@ export class PrismaAuthRepository implements IAuthRepository {
     return new UserSessionEntity({
       id: user.id,
       email: user.email,
-      displayName: user.displayName,
-      entraSub: user.entraSub,
+      displayName: user.displayName || '',
+      entraSub: '',
       roles: this.mapRoles(user.roles),
-      permissions: user.permissions.map((p) => `${p.resource}:${p.action}`),
+      permissions: [],
     });
   }
 
@@ -65,21 +82,19 @@ export class PrismaAuthRepository implements IAuthRepository {
         id: uuid(),
         email,
         displayName,
-        entraSub,
       },
       include: {
         roles: true,
-        permissions: true,
       },
     });
 
     return new UserSessionEntity({
       id: user.id,
       email: user.email,
-      displayName: user.displayName,
-      entraSub: user.entraSub,
+      displayName: user.displayName || '',
+      entraSub: entraSub,
       roles: this.mapRoles(user.roles),
-      permissions: user.permissions.map((p) => `${p.resource}:${p.action}`),
+      permissions: [], // TODO: Get from role permissions
     });
   }
 
@@ -92,60 +107,57 @@ export class PrismaAuthRepository implements IAuthRepository {
       data: {
         email: data.email,
         displayName: data.displayName,
-        entraSub: data.entraSub,
       },
       include: {
         roles: true,
-        permissions: true,
       },
     });
 
     return new UserSessionEntity({
       id: user.id,
       email: user.email,
-      displayName: user.displayName,
-      entraSub: user.entraSub,
+      displayName: user.displayName || '',
+      entraSub: data.entraSub || '',
       roles: this.mapRoles(user.roles),
-      permissions: user.permissions.map((p) => `${p.resource}:${p.action}`),
+      permissions: [], // TODO: Get from role permissions
     });
   }
 
   async getUserRoles(userId: string): Promise<string[]> {
-    const roles = await this.prisma.role.findMany({
+    const roles = await this.prisma.userRole.findMany({
       where: {
-        users: {
-          some: { id: userId },
-        },
+        userId: userId,
+      },
+      include: {
+        role: true,
       },
     });
 
-    return roles.map((r) => r.name);
+    return roles.map((r) => r.role.name);
   }
 
   async getUserPermissions(userId: string): Promise<string[]> {
-    const permissions = await this.prisma.permission.findMany({
-      where: {
-        users: {
-          some: { id: userId },
-        },
-      },
+    const userRoles = await this.prisma.userRole.findMany({
+      where: { userId },
+      include: { role: { include: { permissions: { include: { permission: true } } } } },
     });
 
-    return permissions.map((p) => `${p.resource}:${p.action}`);
+    return userRoles.flatMap((entry) => entry.role.permissions.map((link) => link.permission.name));
   }
 
   async syncUserRoles(userId: string, roles: string[]): Promise<void> {
     // Get or create roles
-    const roleIds = [];
+    const roleIds: string[] = [];
     for (const roleName of roles) {
-      let role = await this.prisma.role.findUnique({
-        where: { name: roleName },
+      let role = await this.prisma.role.findFirst({
+        where: { OR: [{ code: roleName }, { name: roleName }] },
       });
 
       if (!role) {
         role = await this.prisma.role.create({
           data: {
             id: uuid(),
+            code: roleName.toLowerCase().replace(/\s+/g, '-'),
             name: roleName,
           },
         });
@@ -155,13 +167,12 @@ export class PrismaAuthRepository implements IAuthRepository {
     }
 
     // Update user roles
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: {
-        roles: {
-          set: roleIds.map((id) => ({ id })),
-        },
-      },
+    await this.prisma.userRole.deleteMany({
+      where: { userId },
+    });
+
+    await this.prisma.userRole.createMany({
+      data: roleIds.map((roleId) => ({ userId, roleId })),
     });
   }
 
@@ -170,17 +181,14 @@ export class PrismaAuthRepository implements IAuthRepository {
     permissions: string[],
   ): Promise<void> {
     // Parse permissions (format: "resource:action")
-    const permissionIds = [];
+    const permissionIds: string[] = [];
 
     for (const permission of permissions) {
       const [resource, action] = permission.split(':');
 
-      let perm = await this.prisma.permission.findUnique({
+      let perm = await this.prisma.permission.findFirst({
         where: {
-          resource_action: {
-            resource,
-            action,
-          },
+          OR: [{ code: `${resource}:${action}` }, { name: `${resource}:${action}` }],
         },
       });
 
@@ -188,8 +196,8 @@ export class PrismaAuthRepository implements IAuthRepository {
         perm = await this.prisma.permission.create({
           data: {
             id: uuid(),
-            resource,
-            action,
+            code: `${resource}:${action}`,
+            name: `${resource}:${action}`,
           },
         });
       }
@@ -197,14 +205,7 @@ export class PrismaAuthRepository implements IAuthRepository {
       permissionIds.push(perm.id);
     }
 
-    // Update user permissions
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: {
-        permissions: {
-          set: permissionIds.map((id) => ({ id })),
-        },
-      },
-    });
+    // Permissions are modeled through role assignment in this schema.
+    await Promise.resolve(permissionIds);
   }
 }

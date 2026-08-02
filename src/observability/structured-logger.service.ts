@@ -2,10 +2,23 @@ import { Injectable, LoggerService } from '@nestjs/common';
 import { RequestContextService } from './request-context.service';
 
 type LogLevel = 'log' | 'error' | 'warn' | 'debug' | 'verbose';
+type LogContext = string | Record<string, unknown> | undefined;
 
 @Injectable()
 export class StructuredLoggerService implements LoggerService {
   constructor(private readonly context: RequestContextService) {}
+
+  private normalizeContext(context?: LogContext): Record<string, unknown> {
+    if (typeof context === 'string') {
+      return { context };
+    }
+
+    if (context && typeof context === 'object' && !Array.isArray(context)) {
+      return context as Record<string, unknown>;
+    }
+
+    return {};
+  }
 
   private write(
     level: LogLevel,
@@ -32,23 +45,26 @@ export class StructuredLoggerService implements LoggerService {
     process.stdout.write(`${JSON.stringify(payload)}\n`);
   }
 
-  log(message: any, context?: string) {
-    this.write('log', message, { context });
+  log(message: any, context?: LogContext) {
+    this.write('log', message, this.normalizeContext(context));
   }
 
-  error(message: any, trace?: string, context?: string) {
-    this.write('error', message, { trace, context });
+  error(message: any, trace?: string, context?: LogContext) {
+    this.write('error', message, {
+      ...this.normalizeContext(context),
+      trace,
+    });
   }
 
-  warn(message: any, context?: string) {
-    this.write('warn', message, { context });
+  warn(message: any, context?: LogContext) {
+    this.write('warn', message, this.normalizeContext(context));
   }
 
-  debug(message: any, context?: string) {
-    this.write('debug', message, { context });
+  debug(message: any, context?: LogContext) {
+    this.write('debug', message, this.normalizeContext(context));
   }
 
-  verbose(message: any, context?: string) {
-    this.write('verbose', message, { context });
+  verbose(message: any, context?: LogContext) {
+    this.write('verbose', message, this.normalizeContext(context));
   }
 }

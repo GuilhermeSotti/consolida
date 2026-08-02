@@ -43,3 +43,7 @@ describe('Auth Integration (Integration)', () => {
     expect(invalidUser.email).toBe('');
   });
 });
+
+function beforeAll(arg0: () => Promise<void>) {
+  throw new Error('Function not implemented.');
+}
