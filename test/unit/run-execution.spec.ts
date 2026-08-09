@@ -11,7 +11,7 @@ describe('RunExecutionUseCase', () => {
       rule: { findMany: jest.fn().mockResolvedValue([]) },
     };
 
-    const svc = new RunExecutionUseCase(mockPrisma, { load: async () => [] } as any, { query: async () => [] } as any, { fetchFile: async () => Buffer.from('') } as any);
+    const svc = new RunExecutionUseCase(mockPrisma, { load: async () => [] } as any, { query: async () => [] } as any, { fetchFile: async () => Buffer.from('') } as any, { applyRules: async () => [] } as any);
 
     const res = await svc.execute({ configurationId: 'config-1', runBy: 'user-1' });
 
