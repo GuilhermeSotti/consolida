@@ -3,34 +3,150 @@ name: CI
 on:
   pull_request:
   push:
-    branches:
-      - main
+    branches: [main, dev]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  validate:
-    runs-on: ubuntu-latest
-
+  api:
+    name: API — Prisma, typecheck, lint, testes, build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: 22
+          node-version-file: .nvmrc
           cache: npm
-
-      - name: Install dependencies
+      - name: Instalar dependências (gera o Prisma Client no postinstall)
         run: npm ci
+      - run: npx prisma validate
+      - run: npm run typecheck
+      - run: npm run lint
+      - name: Testes unitários, de contrato (OpenAPI) e e2e HTTP
+        run: npm test
+      - run: npm run build:api
+      - name: Vulnerabilidades em dependências de produção
+        run: npm audit --omit=dev --audit-level=high
 
-      - name: Generate Prisma client
-        run: npm run prisma:generate
+  database:
+    name: PostgreSQL — migrations, drift e integração
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16.15-alpine
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: consolidahub_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U ci -d consolidahub_test"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      DATABASE_URL: postgresql://ci:ci@localhost:5432/consolidahub_test
+      SHADOW_DATABASE_URL: postgresql://ci:ci@localhost:5432/consolidahub_shadow
+      PGPASSWORD: ci
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Aplicar migrations em banco vazio
+        run: npx prisma migrate deploy
+      - name: Verificar drift entre migrations e schema.prisma
+        run: |
+          psql -h localhost -U ci -d consolidahub_test -c "CREATE DATABASE consolidahub_shadow"
+          npm run db:migrate:check
+      - name: Testes de integração (repositórios Prisma e fila de jobs)
+        run: npm run test:integration
 
-      - name: Lint
-        run: npm run lint
+  web:
+    name: Web — typecheck, lint, build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: web
+    env:
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:3000/api/v1
+      NEXT_PUBLIC_ENTRA_TENANT_ID: 00000000-0000-0000-0000-000000000000
+      NEXT_PUBLIC_ENTRA_CLIENT_ID: 00000000-0000-0000-0000-000000000000
+      NEXT_PUBLIC_API_SCOPE: api://00000000-0000-0000-0000-000000000000/access_as_user
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run build
+      - run: npm audit --omit=dev --audit-level=high
 
-      - name: Build
-        run: npm run build
+  images:
+    name: Imagens — build e varredura de vulnerabilidades
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    needs: [api, web]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+      - name: Build da imagem da API/worker
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          target: runtime
+          push: false
+          load: true
+          tags: consolidahub-api:ci
+      - name: Build da imagem web
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: web
+          push: false
+          load: true
+          tags: consolidahub-web:ci
+          build-args: |
+            NEXT_PUBLIC_API_BASE_URL=http://localhost:3000/api/v1
+            NEXT_PUBLIC_ENTRA_TENANT_ID=00000000-0000-0000-0000-000000000000
+            NEXT_PUBLIC_ENTRA_CLIENT_ID=00000000-0000-0000-0000-000000000000
+            NEXT_PUBLIC_API_SCOPE=api://00000000-0000-0000-0000-000000000000/access_as_user
+      - name: Varredura da API/worker (CRITICAL/HIGH com correção disponível)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: consolidahub-api:ci
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: '1'
+      - name: Varredura do web (CRITICAL/HIGH com correção disponível)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: consolidahub-web:ci
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: '1'
 
-      - name: Unit tests (only unit)
-        run: npm run test:unit -- --coverage
+  dependency-review:
+    name: Revisão de dependências do PR
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48 # v4.9.0
+        with:
+          fail-on-severity: high

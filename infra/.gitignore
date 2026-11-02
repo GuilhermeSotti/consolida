@@ -1,29 +1,13 @@
-# Terraform
+# Terraform: state, plans and local overrides never go to Git.
 *.tfstate
 *.tfstate.*
+*.tfplan
 .terraform/
-.terraform.lock.hcl
-*.tfvars
-!*.tfvars.example
-.env.docker
-
-# Kubernetes
-.kubeconfig
-kube-config
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Sensitive files
-.env
-.env.local
-*.pem
-*.key
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*.auto.tfvars
+secret*.tfvars
+*.backend.hcl
+# The dependency lock file (.terraform.lock.hcl) MUST be committed after `terraform init`.

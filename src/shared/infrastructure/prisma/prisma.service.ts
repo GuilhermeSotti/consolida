@@ -1,95 +1,51 @@
-import { Injectable, OnModuleInit, OnModuleDestroy, Optional } from '@nestjs/common';
+import { Inject, Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { StructuredLoggerService } from '../../../observability/structured-logger.service';
+import type { AppConfig } from '../../../config/app-config';
+import { TOKENS } from '../../application/ports';
 
+/**
+ * Single Prisma client per process (shared by every module through the core module).
+ *
+ * In production the API and the worker refuse to start when DATABASE_URL authenticates as the
+ * owner of the schema tables (or a member of that role): that is the migration/DDL credential,
+ * and the application must use the least-privilege role (infra/database/app-role.sql).
+ */
 @Injectable()
-export class PrismaService
-  extends PrismaClient
-  implements OnModuleInit, OnModuleDestroy
-{
-  constructor(
-    @Optional() private readonly logger?: StructuredLoggerService,
-  ) {
+export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
+  private readonly enforceLeastPrivilege: boolean;
+
+  constructor(@Inject(TOKENS.APP_CONFIG) config: AppConfig) {
     super({
+      datasourceUrl: config.databaseUrl,
+      errorFormat: 'minimal',
       log: [
-        { emit: 'event', level: 'query' },
-        { emit: 'event', level: 'info' },
-        { emit: 'event', level: 'warn' },
-        { emit: 'event', level: 'error' },
+        { level: 'warn', emit: 'stdout' },
+        { level: 'error', emit: 'stdout' },
       ],
     });
-
-    this.setupEventListeners();
+    this.enforceLeastPrivilege = config.nodeEnv === 'production';
   }
 
-  private registerEventListener(eventName: string, callback: (event: any) => void): void {
-    (this as unknown as {
-      $on: (event: string, handler: (event: any) => void) => void;
-    }).$on(eventName, callback);
-  }
-
-  private setupEventListeners(): void {
-    this.registerEventListener('query', (e: any) => {
-      if (this.logger) {
-        this.logger.debug('prisma_query', {
-          durationMs: e.duration,
-          target: e.target,
-          query: this.sanitizeQuery(e.query),
-          params: this.sanitizeParams(e.params),
-        });
-      }
-    });
-
-    this.registerEventListener('info', (_e: any) => {
-      if (this.logger) {
-        this.logger.log('prisma_info', {
-          context: 'PrismaService',
-        });
-      }
-    });
-
-    this.registerEventListener('warn', (e: any) => {
-      if (this.logger) {
-        this.logger.warn(e.message, {
-          context: 'PrismaService',
-        });
-      }
-    });
-
-    this.registerEventListener('error', (e: any) => {
-      if (this.logger) {
-        this.logger.error(e.message, e.stack, {
-          context: 'PrismaService',
-        });
-      }
-    });
-  }
-
-  private sanitizeQuery(query: string): string {
-    // Remove valores literais para evitar log de dados sensíveis
-    return query
-      .replace(/'[^']*'/g, "'***'")
-      .replace(/"[^"]*"/g, '"***"');
-  }
-
-  private sanitizeParams(params: string): string {
-    try {
-      const parsed = JSON.parse(params);
-      const sanitized = JSON.stringify(parsed).replace(
-        /"value":"[^"]*"/g,
-        '"value":"***"',
+  async onModuleInit(): Promise<void> {
+    await this.$connect();
+    if (this.enforceLeastPrivilege && (await this.connectedAsTableOwner())) {
+      await this.$disconnect();
+      throw new Error(
+        'DATABASE_URL usa o papel dono das tabelas (credencial de migração). Em produção, API e worker devem usar o papel restrito criado por infra/database/app-role.sql.',
       );
-      return sanitized;
-    } catch {
-      return '***';
     }
   }
 
-  async onModuleInit() {
-    await this.$connect();
+  async onModuleDestroy(): Promise<void> {
+    await this.$disconnect();
   }
 
-  async onModuleDestroy() {
-    await this.$disconnect();
+  private async connectedAsTableOwner(): Promise<boolean> {
+    const rows = await this.$queryRaw<Array<{ owns: boolean }>>`
+      SELECT EXISTS (
+        SELECT 1 FROM pg_tables
+         WHERE schemaname = 'public' AND pg_has_role(current_user, tableowner, 'MEMBER')
+      ) AS owns`;
+    return rows[0]?.owns === true;
   }
 }

@@ -1,0 +1,115 @@
+# Ambiente LOCAL de desenvolvimento (não usar em produção).
+#   cp .env.example .env   # preencha os IDs do Entra ID do seu tenant de desenvolvimento
+#   docker compose up --build
+# O PostgreSQL fica acessível somente em 127.0.0.1. Não há usuário ou login fictício:
+# a API valida tokens reais do Entra ID também localmente.
+name: consolidahub
+
+x-api-env: &api-env
+  NODE_ENV: development
+  DATABASE_URL: postgresql://consolidahub:${POSTGRES_PASSWORD:-troque-esta-senha-local}@postgres:5432/consolidahub?schema=public
+  ENTRA_TENANT_ID: ${ENTRA_TENANT_ID:?defina ENTRA_TENANT_ID no .env}
+  ENTRA_API_CLIENT_ID: ${ENTRA_API_CLIENT_ID:?defina ENTRA_API_CLIENT_ID no .env}
+  ENTRA_ALLOWED_CLIENT_IDS: ${ENTRA_ALLOWED_CLIENT_IDS:-}
+  ENTRA_REQUIRED_SCOPE: ${ENTRA_REQUIRED_SCOPE:-access_as_user}
+  CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3001}
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+
+services:
+  postgres:
+    image: postgres:16.15-alpine
+    environment:
+      POSTGRES_DB: consolidahub
+      POSTGRES_USER: consolidahub
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-troque-esta-senha-local}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U consolidahub -d consolidahub"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  migrate:
+    build:
+      context: .
+      target: migrator
+    environment:
+      DATABASE_URL: postgresql://consolidahub:${POSTGRES_PASSWORD:-troque-esta-senha-local}@postgres:5432/consolidahub?schema=public
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    build:
+      context: .
+      target: runtime
+    environment:
+      <<: *api-env
+      PORT: "3000"
+    ports:
+      - "127.0.0.1:3000:3000"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/v1/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+
+  worker:
+    build:
+      context: .
+      target: runtime
+    command: ["node", "--enable-source-maps", "dist/worker.js"]
+    environment:
+      <<: *api-env
+      WORKER_HEARTBEAT_FILE: /tmp/worker.heartbeat
+    healthcheck:
+      # The heartbeat file is touched on every polling cycle and on every lease heartbeat (≤ 30 s)
+      # of the running job; 120 s tolerates long executions without hiding a stuck worker.
+      test: ["CMD-SHELL", "test $$(( $$(date +%s) - $$(stat -c %Y /tmp/worker.heartbeat) )) -lt 120"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+
+  web:
+    build:
+      context: ./web
+      args:
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:3000/api/v1}
+        NEXT_PUBLIC_ENTRA_TENANT_ID: ${ENTRA_TENANT_ID:?defina ENTRA_TENANT_ID no .env}
+        NEXT_PUBLIC_ENTRA_CLIENT_ID: ${NEXT_PUBLIC_ENTRA_CLIENT_ID:?defina NEXT_PUBLIC_ENTRA_CLIENT_ID no .env}
+        NEXT_PUBLIC_API_SCOPE: ${NEXT_PUBLIC_API_SCOPE:?defina NEXT_PUBLIC_API_SCOPE no .env}
+    ports:
+      - "127.0.0.1:3001:3001"
+    depends_on:
+      api:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  postgres-data:

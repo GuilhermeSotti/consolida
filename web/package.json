@@ -1,0 +1,31 @@
+{
+  "name": "consolidahub-web",
+  "version": "0.2.0",
+  "private": true,
+  "description": "ConsolidaHub — interface web (Next.js App Router + MSAL)",
+  "engines": {
+    "node": ">=22.11.0 <25"
+  },
+  "scripts": {
+    "dev": "next dev -p 3001",
+    "build": "next build",
+    "start": "next start -p 3001",
+    "lint": "next lint --max-warnings 0",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@azure/msal-browser": "^5.24.0",
+    "@azure/msal-react": "^5.7.0",
+    "next": "14.2.35",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "eslint": "^8.57.1",
+    "eslint-config-next": "14.2.35",
+    "typescript": "^5.3.3"
+  }
+}

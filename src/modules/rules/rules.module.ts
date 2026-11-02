@@ -1,42 +1,29 @@
 import { Module } from '@nestjs/common';
-
+import { TOKENS, type AuditRecorder, type TransactionRunner } from '../../shared/application/ports';
+import { SOURCES_TOKENS, type SourcesRepository } from '../sources/application/ports';
+import { SourcesCoreModule } from '../sources/sources.module';
+import { RULES_REPOSITORY, type RulesRepository } from './application/ports';
+import { RulesService } from './application/rules.service';
+import { PrismaRulesRepository } from './infrastructure/prisma-rules.repository';
 import { RulesController } from './presentation/rules.controller';
 
-import { CreateRuleUseCase } from './application/use-cases/create-rule.use-case';
-import { UpdateRuleUseCase } from './application/use-cases/update-rule.use-case';
-import { ListRulesUseCase } from './application/use-cases/list-rules.use-case';
-import { GetRuleUseCase } from './application/use-cases/get-rule.use-case';
-import { DeactivateRuleUseCase } from './application/use-cases/deactivate-rule.use-case';
-import { GetRuleVersionsUseCase } from './application/use-cases/get-rule-versions.use-case';
-import { ActivateRuleUseCase } from './application/use-cases/activate-rule.use-case';
-
-import { RulesRepository } from './domain/repositories/rules.repository';
-
-import { PrismaRulesRepository } from './infrastructure/persistence/prisma-rules.repository';
-import { PrismaService } from '@shared/infrastructure/prisma/prisma.service';
-import { RuleApplierService } from './application/services/rule-applier.service';
+@Module({
+  imports: [SourcesCoreModule],
+  providers: [
+    { provide: RULES_REPOSITORY, useClass: PrismaRulesRepository },
+    {
+      provide: RulesService,
+      useFactory: (rules: RulesRepository, sources: SourcesRepository, transactions: TransactionRunner, audit: AuditRecorder) =>
+        new RulesService(rules, sources, transactions, audit),
+      inject: [RULES_REPOSITORY, SOURCES_TOKENS.SOURCES_REPOSITORY, TOKENS.TRANSACTION_RUNNER, TOKENS.AUDIT_RECORDER],
+    },
+  ],
+  exports: [RULES_REPOSITORY, RulesService],
+})
+export class RulesCoreModule {}
 
 @Module({
+  imports: [RulesCoreModule],
   controllers: [RulesController],
-
-  providers: [
-    CreateRuleUseCase,
-    UpdateRuleUseCase,
-    ListRulesUseCase,
-    GetRuleUseCase,
-    DeactivateRuleUseCase,
-    GetRuleVersionsUseCase,
-    ActivateRuleUseCase,
-    RuleApplierService,
-
-    {
-      provide: RulesRepository,
-      useClass: PrismaRulesRepository,
-    },
-
-    PrismaService,
-  ],
-
-  exports: [RulesRepository, RuleApplierService],
 })
 export class RulesModule {}

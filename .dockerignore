@@ -1,0 +1,19 @@
+# Keep the build context minimal and free of secrets.
+.git
+.github
+.vscode
+.idea
+node_modules
+**/node_modules
+dist
+coverage
+web
+infra
+docs
+test
+*.md
+.env
+.env.*
+!.env.example
+*.pem
+*.log

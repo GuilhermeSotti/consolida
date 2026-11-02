@@ -1,0 +1,93 @@
+# Implantação manual por ambiente. Pré-requisitos (ver docs/guias/deploy.md):
+#  * infraestrutura criada com infra/terraform (este workflow NÃO cria recursos);
+#  * GitHub Environments dev/hml/prod com aprovadores obrigatórios em hml e prod;
+#  * federação OIDC (sem segredo de cliente) entre o repositório e uma identidade do Azure com
+#    permissões mínimas: AcrPush no registro e, restrito ao resource group, permissão para ler,
+#    atualizar e iniciar Container Apps e jobs (papel interno equivalente ou papel personalizado);
+#  * variáveis por ambiente: AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID,
+#    AZURE_RESOURCE_GROUP, ACR_NAME, CA_API, CA_WORKER, CA_WEB, CAJ_MIGRATE, NEXT_PUBLIC_API_BASE_URL,
+#    NEXT_PUBLIC_ENTRA_TENANT_ID, NEXT_PUBLIC_ENTRA_CLIENT_ID e NEXT_PUBLIC_API_SCOPE.
+#  * migrations devem ser compatíveis com a versão anterior (expand/contract): o job roda antes
+#    da troca de imagem.
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Ambiente de destino
+        type: choice
+        options: [dev, hml, prod]
+        required: true
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Implantar em ${{ inputs.environment }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: ${{ inputs.environment }}
+    env:
+      TAG: ${{ github.sha }}
+      REGISTRY: ${{ vars.ACR_NAME }}.azurecr.io
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6 # v2.3.1
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+      - name: Login no ACR (token de curta duração via identidade federada)
+        run: az acr login --name "${{ vars.ACR_NAME }}"
+      - name: Build e push da API/worker (tag imutável = commit)
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          target: runtime
+          push: true
+          tags: ${{ env.REGISTRY }}/consolidahub-api:${{ env.TAG }}
+      - name: Build e push do migrador
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          target: migrator
+          push: true
+          tags: ${{ env.REGISTRY }}/consolidahub-migrator:${{ env.TAG }}
+      - name: Build e push do web
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: web
+          push: true
+          tags: ${{ env.REGISTRY }}/consolidahub-web:${{ env.TAG }}
+          build-args: |
+            NEXT_PUBLIC_API_BASE_URL=${{ vars.NEXT_PUBLIC_API_BASE_URL }}
+            NEXT_PUBLIC_ENTRA_TENANT_ID=${{ vars.NEXT_PUBLIC_ENTRA_TENANT_ID }}
+            NEXT_PUBLIC_ENTRA_CLIENT_ID=${{ vars.NEXT_PUBLIC_ENTRA_CLIENT_ID }}
+            NEXT_PUBLIC_API_SCOPE=${{ vars.NEXT_PUBLIC_API_SCOPE }}
+      - name: Executar migrations (job do Container Apps) e aguardar
+        run: |
+          set -euo pipefail
+          az containerapp job update -g "${{ vars.AZURE_RESOURCE_GROUP }}" -n "${{ vars.CAJ_MIGRATE }}" --image "$REGISTRY/consolidahub-migrator:$TAG"
+          execution=$(az containerapp job start -g "${{ vars.AZURE_RESOURCE_GROUP }}" -n "${{ vars.CAJ_MIGRATE }}" --query name -o tsv)
+          for _ in $(seq 1 90); do
+            status=$(az containerapp job execution show -g "${{ vars.AZURE_RESOURCE_GROUP }}" -n "${{ vars.CAJ_MIGRATE }}" --job-execution-name "$execution" --query properties.status -o tsv)
+            echo "migração: $status"
+            [ "$status" = "Succeeded" ] && exit 0
+            [ "$status" = "Failed" ] && exit 1
+            sleep 10
+          done
+          echo "timeout aguardando a migração" && exit 1
+      - name: Atualizar API, worker e web
+        run: |
+          set -euo pipefail
+          az containerapp update -g "${{ vars.AZURE_RESOURCE_GROUP }}" -n "${{ vars.CA_API }}" --image "$REGISTRY/consolidahub-api:$TAG"
+          az containerapp update -g "${{ vars.AZURE_RESOURCE_GROUP }}" -n "${{ vars.CA_WORKER }}" --image "$REGISTRY/consolidahub-api:$TAG"
+          az containerapp update -g "${{ vars.AZURE_RESOURCE_GROUP }}" -n "${{ vars.CA_WEB }}" --image "$REGISTRY/consolidahub-web:$TAG"

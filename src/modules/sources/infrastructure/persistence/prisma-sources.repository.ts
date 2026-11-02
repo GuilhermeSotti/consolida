@@ -1,119 +1,108 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
-import { PrismaService } from '@shared/infrastructure/prisma/prisma.service';
+import { Prisma, type Source } from '@prisma/client';
+import type { TransactionContext } from '../../../../shared/application/ports';
+import { ConflictError } from '../../../../shared/domain/errors';
+import { Page, PageRequest, toSkipTake } from '../../../../shared/domain/pagination';
+import { db, isUniqueViolation, json } from '../../../../shared/infrastructure/prisma/prisma-client';
+import { PrismaService } from '../../../../shared/infrastructure/prisma/prisma.service';
+import type { CreateSourceCommand, SourceFilter, SourcesRepository, SourceView, UpdateSourceCommand } from '../../application/ports';
+import { parseSourceMetadata, type SourceStatus } from '../../domain/source';
+import { parseExpectedColumns } from '../../domain/tabular-import';
 
-import { SourcesRepository } from '../../domain/repositories/sources.repository';
-import { SourceEntity } from '../../domain/entities/source.entity';
+function toView(row: Source): SourceView {
+  return {
+    id: row.id,
+    code: row.code,
+    name: row.name,
+    description: row.description,
+    origin: row.origin,
+    fileFormat: row.fileFormat,
+    sheetName: row.sheetName,
+    csvDelimiter: row.csvDelimiter,
+    expectedColumns: parseExpectedColumns(row.expectedColumns).columns,
+    metadata: parseSourceMetadata(row.metadata).metadata,
+    status: row.status,
+    createdById: row.createdById,
+    updatedById: row.updatedById,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
 
 @Injectable()
 export class PrismaSourcesRepository implements SourcesRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  async create(source: SourceEntity): Promise<SourceEntity> {
-    const created = await this.prisma.source.create({
-      data: {
-        id: source.id,
-        name: source.name,
-        description: source.description,
-        type: source.type,
-        status: source.status,
-        config: JSON.parse(JSON.stringify(source.config || {})) as Prisma.JsonObject,
-        createdBy: source.createdBy,
-        createdAt: source.createdAt,
-        updatedAt: source.updatedAt,
-      },
-    });
-
-    return this.mapToDomain(created);
-  }
-
-  async update(source: SourceEntity): Promise<SourceEntity> {
-    const updated = await this.prisma.source.update({
-      where: { id: source.id },
-      data: {
-        name: source.name,
-        description: source.description,
-        type: source.type,
-        status: source.status,
-        config: JSON.parse(JSON.stringify(source.config || {})) as Prisma.JsonObject,
-        updatedBy: source.updatedBy,
-        updatedAt: source.updatedAt,
-      },
-    });
-
-    return this.mapToDomain(updated);
-  }
-
-  async findById(id: string): Promise<SourceEntity | null> {
-    const raw = await this.prisma.source.findUnique({ where: { id } });
-    return raw ? this.mapToDomain(raw) : null;
-  }
-
-  async findAll(params?: {
-    page?: number;
-    pageSize?: number;
-    status?: string;
-    search?: string;
-    sortBy?: string;
-    sortOrder?: 'asc' | 'desc';
-  }): Promise<{
-    data: SourceEntity[];
-    total: number;
-    page: number;
-    pageSize: number;
-    totalPages: number;
-  }> {
-    const page = params?.page ?? 1;
-    const pageSize = params?.pageSize ?? 20;
-    const sortBy = params?.sortBy ?? 'createdAt';
-    const sortOrder = params?.sortOrder ?? 'desc';
-
-    const where: any = {};
-
-    if (params?.status) where.status = params.status;
-    if (params?.search) {
-      where.OR = [
-        { name: { contains: params.search, mode: 'insensitive' } },
-        { description: { contains: params.search, mode: 'insensitive' } },
-      ];
-    }
-
-    const total = await this.prisma.source.count({ where });
-
-    const items = await this.prisma.source.findMany({
-      where,
-      skip: (page - 1) * pageSize,
-      take: pageSize,
-      orderBy: { [sortBy]: sortOrder },
-    });
-
-    return {
-      data: items.map((x) => this.mapToDomain(x)),
-      total,
-      page,
-      pageSize,
-      totalPages: Math.ceil(total / pageSize),
+  async list(filter: SourceFilter, page: PageRequest): Promise<Page<SourceView>> {
+    const where: Prisma.SourceWhereInput = {
+      status: filter.status,
+      fileFormat: filter.fileFormat,
+      OR: filter.search
+        ? [
+            { code: { contains: filter.search, mode: 'insensitive' } },
+            { name: { contains: filter.search, mode: 'insensitive' } },
+          ]
+        : undefined,
     };
+    const [totalItems, rows] = await Promise.all([
+      this.prisma.source.count({ where }),
+      this.prisma.source.findMany({ where, orderBy: [{ code: 'asc' }], ...toSkipTake(page) }),
+    ]);
+    return { items: rows.map(toView), page: page.page, pageSize: page.pageSize, totalItems };
   }
 
-  async deactivate(id: string): Promise<void> {
-    await this.prisma.source.update({ where: { id }, data: { status: 'INACTIVE', updatedAt: new Date() } });
+  async findById(id: string, tx?: TransactionContext): Promise<SourceView | null> {
+    const row = await db(this.prisma, tx).source.findUnique({ where: { id } });
+    return row ? toView(row) : null;
   }
 
-  private mapToDomain(raw: any): SourceEntity {
-    const e = new SourceEntity();
+  async existingIds(ids: readonly string[], tx?: TransactionContext): Promise<string[]> {
+    if (ids.length === 0) return [];
+    const rows = await db(this.prisma, tx).source.findMany({ where: { id: { in: [...ids] } }, select: { id: true } });
+    return rows.map((row) => row.id);
+  }
 
-    e.id = raw.id;
-    e.name = raw.name;
-    e.description = raw.description;
-    e.type = raw.type;
-    e.status = raw.status;
-    e.config = (raw.config ? JSON.parse(JSON.stringify(raw.config)) : {}) as Record<string, unknown>;
-    e.createdBy = raw.createdBy;
-    e.updatedBy = raw.updatedBy;
-    e.createdAt = raw.createdAt;
-    e.updatedAt = raw.updatedAt;
+  async create(command: CreateSourceCommand, createdById: string, tx: TransactionContext): Promise<SourceView> {
+    try {
+      const row = await db(this.prisma, tx).source.create({
+        data: {
+          code: command.code,
+          name: command.name,
+          description: command.description,
+          origin: 'FILE_UPLOAD',
+          fileFormat: command.fileFormat,
+          sheetName: command.sheetName,
+          csvDelimiter: command.csvDelimiter,
+          expectedColumns: json(command.expectedColumns),
+          metadata: json(command.metadata),
+          createdById,
+        },
+      });
+      return toView(row);
+    } catch (error) {
+      if (isUniqueViolation(error)) throw new ConflictError('SOURCE_CODE_TAKEN', `Já existe uma fonte com o código ${command.code}.`);
+      throw error;
+    }
+  }
 
-    return e;
+  async update(id: string, changes: UpdateSourceCommand, updatedById: string, tx: TransactionContext): Promise<SourceView> {
+    const row = await db(this.prisma, tx).source.update({
+      where: { id },
+      data: {
+        name: changes.name,
+        description: changes.description,
+        sheetName: changes.sheetName,
+        csvDelimiter: changes.csvDelimiter,
+        expectedColumns: changes.expectedColumns ? json(changes.expectedColumns) : undefined,
+        metadata: changes.metadata ? json(changes.metadata) : undefined,
+        updatedById,
+      },
+    });
+    return toView(row);
+  }
+
+  async setStatus(id: string, status: SourceStatus, updatedById: string, tx: TransactionContext): Promise<SourceView> {
+    const row = await db(this.prisma, tx).source.update({ where: { id }, data: { status, updatedById } });
+    return toView(row);
   }
 }

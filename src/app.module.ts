@@ -1,66 +1,46 @@
-import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { DynamicModule, Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
-
-import { HealthController } from './common/controllers/health.controller';
+import type { AppConfig } from './config/app-config';
+import { AuditModule } from './modules/audit/audit.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { AuthenticationGuard } from './modules/auth/presentation/authentication.guard';
+import { AuthorizationGuard } from './modules/auth/presentation/authorization.guard';
+import { ExecutionsModule } from './modules/executions/executions.module';
+import { HealthModule } from './modules/health/health.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
+import { ReportsModule } from './modules/reports/reports.module';
 import { RulesModule } from './modules/rules/rules.module';
 import { SourcesModule } from './modules/sources/sources.module';
-import { ExecutionsModule } from './modules/executions/executions.module';
-import { ReportsModule } from './modules/reports/reports.module';
-import { RequestContextService } from './observability/request-context.service';
-import { RequestContextMiddleware } from './observability/request-context.middleware';
-import { StructuredLoggerService } from './observability/structured-logger.service';
-import { RequestLoggingInterceptor } from './observability/request-logging.interceptor';
-import { TelemetryService } from './observability/telemetry.service';
-import { AuditService } from './audit/audit.service';
-import { PrismaService } from './shared/infrastructure/prisma/prisma.service';
+import { UsersModule } from './modules/users/users.module';
+import { CoreModule } from './shared/infrastructure/core.module';
 
-@Module({
-  imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
-    ThrottlerModule.forRoot([
-      {
-        name: 'default',
-        ttl: 60000,
-        limit: 100,
-      },
-      {
-        name: 'auth',
-        ttl: 60000,
-        limit: 5,
-      },
-    ]),
-    AuthModule,
-    RulesModule,
-    SourcesModule,
-    ExecutionsModule,
-    ReportsModule,
-  ],
-  controllers: [HealthController],
-  providers: [
-    RequestContextService,
-    StructuredLoggerService,
-    RequestLoggingInterceptor,
-    TelemetryService,
-    AuditService,
-    PrismaService,
-    {
-      provide: APP_GUARD,
-      useClass: ThrottlerGuard,
-    },
-  ],
-  exports: [
-    TelemetryService,
-    AuditService,
-    StructuredLoggerService,
-    RequestContextService,
-    PrismaService,
-  ],
-})
-export class AppModule implements NestModule {
-  configure(consumer: MiddlewareConsumer) {
-    consumer.apply(RequestContextMiddleware).forRoutes('*');
+/** HTTP API process. */
+@Module({})
+export class AppModule {
+  static forRoot(config: AppConfig): DynamicModule {
+    return {
+      module: AppModule,
+      imports: [
+        CoreModule.forRoot(config),
+        // In-memory counters per replica (see docs/arquitetura/seguranca.md for multi-replica limits).
+        ThrottlerModule.forRoot([{ ttl: config.rateLimit.ttlSeconds * 1000, limit: config.rateLimit.limit }]),
+        AuthModule,
+        UsersModule,
+        SourcesModule,
+        RulesModule,
+        ExecutionsModule,
+        ReportsModule,
+        NotificationsModule,
+        AuditModule,
+        HealthModule,
+      ],
+      // Global guards, in this order: rate limit → authentication → authorization (deny-by-default).
+      providers: [
+        { provide: APP_GUARD, useClass: ThrottlerGuard },
+        { provide: APP_GUARD, useClass: AuthenticationGuard },
+        { provide: APP_GUARD, useClass: AuthorizationGuard },
+      ],
+    };
   }
 }

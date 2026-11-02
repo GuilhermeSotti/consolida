@@ -1,5 +1,11 @@
-// ConsolidaHub - Prisma Schema
-// Complete data model for Auth, RBAC, Rules, Sources, Executions, Reports, Notifications
+// ConsolidaHub — modelo de dados (PostgreSQL)
+//
+// Convenções:
+//  * tabelas e colunas em snake_case (@@map/@map); identificadores UUID gerados pela aplicação;
+//  * instantes em TIMESTAMPTZ(3);
+//  * registros que garantem rastreabilidade (versões de regra, cargas validadas, execuções,
+//    relatórios e eventos de auditoria) são imutáveis depois de concluídos;
+//  * `audit_events` é somente-inclusão (trigger criado na migration de base).
 
 generator client {
   provider = "prisma-client-js"
@@ -10,407 +16,473 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ============ AUTHENTICATION & AUTHORIZATION ============
+// ============================================================================
+// Identidade e acesso
+// ============================================================================
 
-/// Core user entity linked to Entra ID and internal system
-model User {
-  id              String   @id @default(uuid()) @db.Uuid
-  email           String   @unique @db.VarChar(255)
-  displayName     String?  @db.VarChar(255)
-  isActive        Boolean  @default(true)
-  lastLoginAt     DateTime?
-  createdAt       DateTime @default(now()) @db.Timestamp(3)
-  updatedAt       DateTime @updatedAt @db.Timestamp(3)
-
-  // Relations
-  identities      ExternalIdentity[]
-  roles           UserRole[]
-  sessions        UserSession[]
-  auditLogs       AuditLog[] @relation("AuditActor")
-
-  @@map("users")
-  @@index([email])
-  @@index([isActive])
-  @@index([createdAt])
+enum UserStatus {
+  ACTIVE
+  INACTIVE
 }
 
-/// External identity provider mapping (Entra ID, etc)
-model ExternalIdentity {
-  id          String   @id @default(uuid()) @db.Uuid
-  provider    String   @db.VarChar(50) // "entra", "local", etc
-  tenantId    String   @db.VarChar(255)
-  subject     String   @db.VarChar(255) // oid/sub from token
-  email       String?  @db.VarChar(255)
-  userId      String   @db.Uuid
-  createdAt   DateTime @default(now()) @db.Timestamp(3)
-  updatedAt   DateTime @updatedAt @db.Timestamp(3)
+/// Usuário local. A identidade permanente vem de `external_identities` (tid + oid do Entra ID);
+/// e-mail e nome são apenas informativos e podem mudar.
+model User {
+  id          String     @id @default(uuid()) @db.Uuid
+  displayName String     @map("display_name") @db.VarChar(255)
+  email       String?    @db.VarChar(320)
+  status      UserStatus @default(ACTIVE)
+  lastSeenAt  DateTime?  @map("last_seen_at") @db.Timestamptz(3)
+  createdAt   DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  // Relations
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  identities        ExternalIdentity[]
+  roles             UserRole[]        @relation("UserRoles")
+  rolesAssigned     UserRole[]        @relation("UserRoleAssignedBy")
+  auditEvents       AuditEvent[]
+  rulesCreated      Rule[]
+  ruleVersions      RuleVersion[]
+  sourcesCreated    Source[]          @relation("SourceCreatedBy")
+  sourcesUpdated    Source[]          @relation("SourceUpdatedBy")
+  importsUploaded   DataImport[]
+  executions        Execution[]
+  notifications     Notification[]
+
+  @@index([status])
+  @@index([email])
+  @@map("users")
+}
+
+/// Vínculo com o provedor de identidade. Chave natural: (provider, tenant_id, subject=oid).
+model ExternalIdentity {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  provider   String   @db.VarChar(32)
+  tenantId   String   @map("tenant_id") @db.VarChar(64)
+  subject    String   @db.VarChar(128)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([provider, tenantId, subject])
-  @@map("external_identities")
-  @@index([provider])
   @@index([userId])
+  @@map("external_identities")
 }
 
-/// Role - collection of permissions
 model Role {
   id          String   @id @default(uuid()) @db.Uuid
-  code        String   @unique @db.VarChar(100)
-  name        String   @db.VarChar(255)
-  description String?  @db.Text
-  createdAt   DateTime @default(now()) @db.Timestamp(3)
-  updatedAt   DateTime @updatedAt @db.Timestamp(3)
+  code        String   @unique @db.VarChar(64)
+  name        String   @db.VarChar(128)
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  // Relations
-  users       UserRole[]
   permissions RolePermission[]
+  users       UserRole[]
 
   @@map("roles")
-  @@index([code])
 }
 
-/// Permission - granular access control
+/// Permissão no formato `recurso:ação` (ex.: `rules:create`).
 model Permission {
   id          String   @id @default(uuid()) @db.Uuid
-  code        String   @unique @db.VarChar(100)
-  name        String   @db.VarChar(255)
-  description String?  @db.Text
-  createdAt   DateTime @default(now()) @db.Timestamp(3)
-  updatedAt   DateTime @updatedAt @db.Timestamp(3)
+  code        String   @unique @db.VarChar(64)
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
-  // Relations
-  roles       RolePermission[]
+  roles RolePermission[]
 
   @@map("permissions")
-  @@index([code])
 }
 
-/// Many-to-many: User to Role
-model UserRole {
-  userId      String   @db.Uuid
-  roleId      String   @db.Uuid
-  createdAt   DateTime @default(now()) @db.Timestamp(3)
-
-  // Relations
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  role        Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
-
-  @@id([userId, roleId])
-  @@map("user_roles")
-  @@index([userId])
-  @@index([roleId])
-}
-
-/// Many-to-many: Role to Permission
 model RolePermission {
-  roleId       String   @db.Uuid
-  permissionId String   @db.Uuid
-  createdAt    DateTime @default(now()) @db.Timestamp(3)
+  roleId       String @map("role_id") @db.Uuid
+  permissionId String @map("permission_id") @db.Uuid
 
-  // Relations
-  role         Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
-  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
 
   @@id([roleId, permissionId])
-  @@map("role_permissions")
-  @@index([roleId])
   @@index([permissionId])
+  @@map("role_permissions")
 }
 
-/// User session for token and revocation management
-model UserSession {
-  id           String   @id @default(uuid()) @db.Uuid
-  userId       String   @db.Uuid
-  tokenJti     String   @unique @db.VarChar(255)
-  expiresAt    DateTime
-  revokedAt    DateTime?
-  createdAt    DateTime @default(now()) @db.Timestamp(3)
+model UserRole {
+  userId       String   @map("user_id") @db.Uuid
+  roleId       String   @map("role_id") @db.Uuid
+  assignedById String?  @map("assigned_by_id") @db.Uuid
+  assignedAt   DateTime @default(now()) @map("assigned_at") @db.Timestamptz(3)
 
-  // Relations
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user       User  @relation("UserRoles", fields: [userId], references: [id], onDelete: Cascade)
+  role       Role  @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  assignedBy User? @relation("UserRoleAssignedBy", fields: [assignedById], references: [id], onDelete: Restrict)
 
-  @@map("user_sessions")
-  @@index([userId])
-  @@index([expiresAt])
-  @@index([revokedAt])
+  @@id([userId, roleId])
+  @@index([roleId])
+  @@map("user_roles")
 }
 
-/// Comprehensive audit log for sensitive actions with full correlation
-model AuditLog {
-  id          String   @id @default(uuid()) @db.Uuid
-  
-  // Correlation IDs for tracing
-  requestId   String?  @db.VarChar(255)
-  traceId     String?  @db.VarChar(255)
-  spanId      String?  @db.VarChar(255)
+// ============================================================================
+// Auditoria (somente inclusão)
+// ============================================================================
 
-  // Actor information
-  actorUserId String?  @db.Uuid
-  actorEmail  String?  @db.VarChar(255)
-
-  // Action details
-  action      String   @db.VarChar(100)
-  entity      String   @db.VarChar(100)
-  entityId    String?  @db.Uuid
-  status      String   @db.VarChar(50) // "SUCCESS", "FAILURE"
-  durationMs  Int?
-
-  // Request context
-  ipAddress   String?  @db.VarChar(45)
-  userAgent   String?  @db.Text
-
-  // Additional metadata
-  metadata    Json?
-
-  createdAt   DateTime @default(now()) @db.Timestamp(3)
-
-  // Relations
-  actor       User?    @relation("AuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
-
-  @@map("audit_logs")
-  @@index([actorUserId, createdAt])
-  @@index([entity, entityId])
-  @@index([action, createdAt])
-  @@index([requestId])
-  @@index([traceId])
-  @@index([createdAt])
+enum AuditOutcome {
+  SUCCESS
+  FAILURE
+  DENIED
 }
 
-// ============ RULES ============
+model AuditEvent {
+  id          String       @id @default(uuid()) @db.Uuid
+  occurredAt  DateTime     @default(now()) @map("occurred_at") @db.Timestamptz(3)
+  actorUserId String?      @map("actor_user_id") @db.Uuid
+  action      String       @db.VarChar(100)
+  entityType  String       @map("entity_type") @db.VarChar(50)
+  entityId    String?      @map("entity_id") @db.VarChar(64)
+  outcome     AuditOutcome
+  requestId   String?      @map("request_id") @db.VarChar(64)
+  ipAddress   String?      @map("ip_address") @db.VarChar(45)
+  userAgent   String?      @map("user_agent") @db.VarChar(512)
+  details     Json?
 
-model Rule {
-  id          String   @id @default(uuid()) @db.Uuid
-  name        String   @db.VarChar(255)
-  description String?  @db.Text
-  version     Int      @default(1)
-  status      String   @db.VarChar(50)
+  actor User? @relation(fields: [actorUserId], references: [id], onDelete: Restrict)
 
-  sourceIds   String[] @db.Uuid
-  conditions  Json
-  actions     Json
-  priority    Int      @default(0)
-
-  createdBy   String   @db.Uuid
-  updatedBy   String?  @db.Uuid
-
-  createdAt   DateTime @default(now()) @db.Timestamp(3)
-  updatedAt   DateTime @updatedAt @db.Timestamp(3)
-
-  @@map("rules")
-  @@index([status])
-  @@index([createdAt])
-  @@index([createdBy])
+  @@index([occurredAt])
+  @@index([entityType, entityId])
+  @@index([actorUserId, occurredAt])
+  @@index([action, occurredAt])
+  @@map("audit_events")
 }
 
-// ============ SOURCES ============
+// ============================================================================
+// Bases de entrada (fontes) e cargas
+// ============================================================================
 
+enum SourceStatus {
+  ACTIVE
+  INACTIVE
+}
+
+/// Origens suportadas. Novos conectores entram como novos valores + adaptador dedicado.
+enum SourceOrigin {
+  FILE_UPLOAD
+}
+
+enum FileFormat {
+  CSV
+  XLSX
+}
+
+/// Base de entrada: definição estável (origem, formato, colunas esperadas, metadados de negócio).
 model Source {
-  id          String   @id @default(uuid()) @db.Uuid
-  name        String   @db.VarChar(255)
-  description String?  @db.Text
-  type        String   @db.VarChar(100) // "database", "api", "file", etc
-  status      String   @db.VarChar(50)
-  config      Json
-  
-  createdBy   String   @db.Uuid
-  updatedBy   String?  @db.Uuid
-  
-  createdAt   DateTime @default(now()) @db.Timestamp(3)
-  updatedAt   DateTime @updatedAt @db.Timestamp(3)
-  // Relations
-  dataTables  DataTable[]
+  id              String       @id @default(uuid()) @db.Uuid
+  code            String       @unique @db.VarChar(64)
+  name            String       @db.VarChar(200)
+  description     String?
+  origin          SourceOrigin
+  fileFormat      FileFormat   @map("file_format")
+  sheetName       String?      @map("sheet_name") @db.VarChar(100)
+  csvDelimiter    String?      @map("csv_delimiter") @db.VarChar(1)
+  expectedColumns Json         @map("expected_columns")
+  metadata        Json
+  status          SourceStatus @default(ACTIVE)
+  createdById     String       @map("created_by_id") @db.Uuid
+  updatedById     String?      @map("updated_by_id") @db.Uuid
+  createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
 
+  createdBy  User         @relation("SourceCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  updatedBy  User?        @relation("SourceUpdatedBy", fields: [updatedById], references: [id], onDelete: Restrict)
+  imports    DataImport[]
+  rules      Rule[]
+  executions Execution[]
+  reports    Report[]
+
+  @@index([status])
   @@map("sources")
-  @@index([type])
+}
+
+enum ImportStatus {
+  RECEIVED
+  PROCESSING
+  VALIDATED
+  REJECTED
+  FAILED
+}
+
+/// Carga: um arquivo recebido para uma fonte. Depois de VALIDATED, o conteúdo é imutável.
+model DataImport {
+  id               String       @id @default(uuid()) @db.Uuid
+  sourceId         String       @map("source_id") @db.Uuid
+  status           ImportStatus @default(RECEIVED)
+  fileName         String       @map("file_name") @db.VarChar(255)
+  fileFormat       FileFormat   @map("file_format")
+  fileSizeBytes    Int          @map("file_size_bytes")
+  checksumSha256   String       @map("checksum_sha256") @db.Char(64)
+  rowCount         Int?         @map("row_count")
+  columns          Json?
+  validationErrors Json?        @map("validation_errors")
+  errorMessage     String?      @map("error_message") @db.VarChar(1000)
+  uploadedById     String       @map("uploaded_by_id") @db.Uuid
+  createdAt        DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  processedAt      DateTime?    @map("processed_at") @db.Timestamptz(3)
+
+  source     Source        @relation(fields: [sourceId], references: [id], onDelete: Restrict)
+  uploadedBy User          @relation(fields: [uploadedById], references: [id], onDelete: Restrict)
+  file       ImportFile?
+  chunks     ImportChunk[]
+
+  @@index([sourceId, status, createdAt])
+  @@index([checksumSha256])
+  @@map("data_imports")
+}
+
+/// Conteúdo bruto recebido (mantido para reprocessamento e auditoria).
+model ImportFile {
+  importId String @id @map("import_id") @db.Uuid
+  content  Bytes
+
+  dataImport DataImport @relation(fields: [importId], references: [id], onDelete: Cascade)
+
+  @@map("import_files")
+}
+
+/// Linhas normalizadas da carga, em blocos ordenados.
+model ImportChunk {
+  importId   String @map("import_id") @db.Uuid
+  chunkIndex Int    @map("chunk_index")
+  rows       Json
+
+  dataImport DataImport @relation(fields: [importId], references: [id], onDelete: Cascade)
+
+  @@id([importId, chunkIndex])
+  @@map("import_chunks")
+}
+
+// ============================================================================
+// Regras de negócio (versionadas)
+// ============================================================================
+
+enum RuleStatus {
+  ACTIVE
+  INACTIVE
+}
+
+/// Categorias do motor (equivalentes às lógicas do script Power Query original).
+enum RuleType {
+  FILTER
+  CONDITIONAL_ASSIGNMENT
+  ARITHMETIC
+  STANDARDIZATION
+  LOOKUP
+  PROJECTION
+}
+
+/// Cabeçalho da regra. Tipo e fonte-alvo são imutáveis; o conteúdo vive em `rule_versions`.
+/// Regras nascem INACTIVE e só participam de execuções depois de ativadas explicitamente.
+model Rule {
+  id             String     @id @default(uuid()) @db.Uuid
+  type           RuleType
+  targetSourceId String     @map("target_source_id") @db.Uuid
+  status         RuleStatus @default(INACTIVE)
+  currentVersion Int        @map("current_version")
+  createdById    String     @map("created_by_id") @db.Uuid
+  createdAt      DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  targetSource Source        @relation(fields: [targetSourceId], references: [id], onDelete: Restrict)
+  createdBy    User          @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  versions     RuleVersion[]
+
+  @@index([targetSourceId, status])
   @@index([status])
-  @@index([createdAt])
+  @@map("rules")
 }
 
-// ============ CONFIGURATION & MULTIBASE ENTITIES ============
+/// Versão imutável do conteúdo de uma regra.
+model RuleVersion {
+  id             String   @id @default(uuid()) @db.Uuid
+  ruleId         String   @map("rule_id") @db.Uuid
+  version        Int
+  name           String   @db.VarChar(200)
+  description    String?
+  phase          String?  @db.VarChar(100)
+  executionOrder Int      @map("execution_order")
+  definition     Json
+  changeReason   String?  @map("change_reason") @db.VarChar(500)
+  createdById    String   @map("created_by_id") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
-model Multibase1 {
-  id          String   @id @default(uuid()) @db.Uuid
-  code        String   @db.VarChar(100)
-  name        String   @db.VarChar(255)
-  description String?  @db.Text
+  rule      Rule @relation(fields: [ruleId], references: [id], onDelete: Restrict)
+  createdBy User @relation(fields: [createdById], references: [id], onDelete: Restrict)
 
-  multibaseXs MultibaseX[]
-
-  createdAt   DateTime @default(now()) @db.Timestamp(3)
-  updatedAt   DateTime @updatedAt @db.Timestamp(3)
-
-  @@map("multibase1")
-  @@index([code])
+  @@unique([ruleId, version])
+  @@map("rule_versions")
 }
 
-model MultibaseX {
-  id            String    @id @default(uuid()) @db.Uuid
-  code          String    @db.VarChar(100)
-  name          String    @db.VarChar(255)
-  description   String?   @db.Text
-  multibase1Id  String?   @db.Uuid
+// ============================================================================
+// Execuções, relatórios e fila de processamento
+// ============================================================================
 
-  bases         DataBase[]
-  multibase1    Multibase1? @relation(fields: [multibase1Id], references: [id], onDelete: SetNull)
-
-  createdAt     DateTime  @default(now()) @db.Timestamp(3)
-  updatedAt     DateTime  @updatedAt @db.Timestamp(3)
-
-  @@map("multibasex")
-  @@index([code])
-  @@index([multibase1Id])
+enum ExecutionStatus {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  FAILED
+  CANCELLED
 }
 
-model DataBase {
-  id           String    @id @default(uuid()) @db.Uuid
-  code         String    @db.VarChar(100)
-  name         String    @db.VarChar(255)
-  multibaseXId String?   @db.Uuid
-
-  dataTables   DataTable[]
-  multibaseX   MultibaseX? @relation(fields: [multibaseXId], references: [id], onDelete: SetNull)
-
-  createdAt    DateTime  @default(now()) @db.Timestamp(3)
-  updatedAt    DateTime  @updatedAt @db.Timestamp(3)
-
-  @@map("databases")
-  @@index([code])
-  @@index([multibaseXId])
-}
-
-model DataTable {
-  id          String   @id @default(uuid()) @db.Uuid
-  name        String   @db.VarChar(255)
-  code        String   @db.VarChar(100)
-  dataBaseId  String?  @db.Uuid
-  sourceId    String?  @db.Uuid
-  metadata    Json?
-
-  dataBase    DataBase? @relation(fields: [dataBaseId], references: [id], onDelete: SetNull)
-  source      Source?   @relation(fields: [sourceId], references: [id], onDelete: SetNull)
-
-  createdAt   DateTime @default(now()) @db.Timestamp(3)
-  updatedAt   DateTime @updatedAt @db.Timestamp(3)
-
-  @@map("data_tables")
-  @@index([code])
-  @@index([dataBaseId])
-  @@index([sourceId])
-}
-
-model Phase {
-  id              String   @id @default(uuid()) @db.Uuid
-  name            String   @db.VarChar(255)
-  description     String?  @db.Text
-  order           Int      @default(0)
-  configurationId String?  @db.Uuid
-
-  configuration   Configuration? @relation(fields: [configurationId], references: [id], onDelete: Cascade)
-
-  createdAt       DateTime @default(now()) @db.Timestamp(3)
-  updatedAt       DateTime @updatedAt @db.Timestamp(3)
-
-  @@map("phases")
-  @@index([configurationId])
-  @@index([order])
-}
-
-model Configuration {
-  id          String   @id @default(uuid()) @db.Uuid
-  name        String   @db.VarChar(255)
-  description String?  @db.Text
-  isActive    Boolean  @default(true)
-
-  phases      Phase[]
-  versions    ConfigurationVersion[]
-
-  createdAt   DateTime @default(now()) @db.Timestamp(3)
-  updatedAt   DateTime @updatedAt @db.Timestamp(3)
-
-  @@map("configurations")
-  @@index([isActive])
-}
-
-model ConfigurationVersion {
-  id              String   @id @default(uuid()) @db.Uuid
-  configurationId String   @db.Uuid
-  version         Int      @default(1)
-  data            Json
-  createdBy       String?  @db.Uuid
-
-  configuration   Configuration @relation(fields: [configurationId], references: [id], onDelete: Cascade)
-
-  createdAt       DateTime @default(now()) @db.Timestamp(3)
-
-  @@map("configuration_versions")
-  @@index([configurationId])
-  @@index([version])
-}
-
-// ============ EXECUTIONS ============
-
+/// Execução do motor sobre uma fonte. `input_snapshot` fixa as cargas e versões de regra usadas.
 model Execution {
-  id          String   @id @default(uuid()) @db.Uuid
-  ruleId      String   @db.Uuid
-  sourceId    String   @db.Uuid
-  status      String   @db.VarChar(50) // "pending", "running", "completed", "failed"
-  result      Json?
-  errorMessage String?
-  
-  startedAt   DateTime?
-  completedAt DateTime?
-  
-  createdAt   DateTime @default(now()) @db.Timestamp(3)
-  updatedAt   DateTime @updatedAt @db.Timestamp(3)
+  id               String          @id @default(uuid()) @db.Uuid
+  sourceId         String          @map("source_id") @db.Uuid
+  status           ExecutionStatus @default(QUEUED)
+  phase            String?         @db.VarChar(100)
+  requestedById    String          @map("requested_by_id") @db.Uuid
+  idempotencyKey   String?         @map("idempotency_key") @db.VarChar(100)
+  requestHash      String          @map("request_hash") @db.Char(64)
+  engineVersion    String          @map("engine_version") @db.VarChar(20)
+  inputSnapshot    Json            @map("input_snapshot")
+  reproducedFromId String?         @map("reproduced_from_id") @db.Uuid
+  cancelRequested  Boolean         @default(false) @map("cancel_requested")
+  rowsIn           Int?            @map("rows_in")
+  rowsOut          Int?            @map("rows_out")
+  progress         Json?
+  errorCode        String?         @map("error_code") @db.VarChar(64)
+  errorMessage     String?         @map("error_message") @db.VarChar(1000)
+  createdAt        DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  startedAt        DateTime?       @map("started_at") @db.Timestamptz(3)
+  finishedAt       DateTime?       @map("finished_at") @db.Timestamptz(3)
+  updatedAt        DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
 
+  source         Source         @relation(fields: [sourceId], references: [id], onDelete: Restrict)
+  requestedBy    User           @relation(fields: [requestedById], references: [id], onDelete: Restrict)
+  reproducedFrom Execution?     @relation("ExecutionReproduction", fields: [reproducedFromId], references: [id], onDelete: Restrict)
+  reproductions  Execution[]    @relation("ExecutionReproduction")
+  report         Report?
+  logs           ExecutionLog[]
+
+  @@unique([requestedById, idempotencyKey])
+  @@index([status, createdAt])
+  @@index([sourceId, createdAt])
   @@map("executions")
-  @@index([ruleId])
-  @@index([sourceId])
-  @@index([status])
-  @@index([createdAt])
 }
 
-// ============ REPORTS ============
+enum LogLevel {
+  INFO
+  WARN
+  ERROR
+}
 
+model ExecutionLog {
+  id          BigInt   @id @default(autoincrement())
+  executionId String   @map("execution_id") @db.Uuid
+  occurredAt  DateTime @default(now()) @map("occurred_at") @db.Timestamptz(3)
+  level       LogLevel
+  step        String   @db.VarChar(120)
+  message     String   @db.VarChar(1000)
+  details     Json?
+
+  execution Execution @relation(fields: [executionId], references: [id], onDelete: Cascade)
+
+  @@index([executionId, id])
+  @@map("execution_logs")
+}
+
+enum ReportStatus {
+  GENERATING
+  AVAILABLE
+}
+
+/// Relatório Consolidado produzido por uma execução (1:1). Visível apenas quando AVAILABLE.
 model Report {
-  id          String   @id @default(uuid()) @db.Uuid
-  name        String   @db.VarChar(255)
-  description String?  @db.Text
-  type        String   @db.VarChar(100) // "consolidated", "analysis", etc
-  status      String   @db.VarChar(50)
-  
-  data        Json?
-  
-  createdBy   String   @db.Uuid
-  
-  createdAt   DateTime @default(now()) @db.Timestamp(3)
-  updatedAt   DateTime @updatedAt @db.Timestamp(3)
+  id          String       @id @default(uuid()) @db.Uuid
+  executionId String       @unique @map("execution_id") @db.Uuid
+  sourceId    String       @map("source_id") @db.Uuid
+  name        String       @db.VarChar(255)
+  status      ReportStatus @default(GENERATING)
+  columns     Json
+  rowCount    Int          @default(0) @map("row_count")
+  createdAt   DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  availableAt DateTime?    @map("available_at") @db.Timestamptz(3)
 
+  execution Execution     @relation(fields: [executionId], references: [id], onDelete: Restrict)
+  source    Source        @relation(fields: [sourceId], references: [id], onDelete: Restrict)
+  chunks    ReportChunk[]
+
+  @@index([sourceId, createdAt])
+  @@index([status, createdAt])
   @@map("reports")
-  @@index([type])
-  @@index([status])
-  @@index([createdBy])
-  @@index([createdAt])
 }
 
-// ============ NOTIFICATIONS ============
+model ReportChunk {
+  reportId   String @map("report_id") @db.Uuid
+  chunkIndex Int    @map("chunk_index")
+  rows       Json
+
+  report Report @relation(fields: [reportId], references: [id], onDelete: Cascade)
+
+  @@id([reportId, chunkIndex])
+  @@map("report_chunks")
+}
+
+enum JobType {
+  PROCESS_IMPORT
+  RUN_EXECUTION
+}
+
+enum JobStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+/// Fila de trabalhos em PostgreSQL (consumida com FOR UPDATE SKIP LOCKED).
+model BackgroundJob {
+  id          String    @id @default(uuid()) @db.Uuid
+  type        JobType
+  status      JobStatus @default(PENDING)
+  payload     Json
+  attempts    Int       @default(0)
+  maxAttempts Int       @default(3) @map("max_attempts")
+  runAfter    DateTime  @default(now()) @map("run_after") @db.Timestamptz(3)
+  lockedBy    String?   @map("locked_by") @db.VarChar(100)
+  lockedAt    DateTime? @map("locked_at") @db.Timestamptz(3)
+  heartbeatAt DateTime? @map("heartbeat_at") @db.Timestamptz(3)
+  lastError   String?   @map("last_error") @db.VarChar(1000)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  completedAt DateTime? @map("completed_at") @db.Timestamptz(3)
+
+  @@index([status, runAfter])
+  @@map("background_jobs")
+}
+
+// ============================================================================
+// Notificações
+// ============================================================================
+
+enum NotificationType {
+  IMPORT_VALIDATED
+  IMPORT_REJECTED
+  EXECUTION_SUCCEEDED
+  EXECUTION_FAILED
+}
 
 model Notification {
-  id          String   @id @default(uuid()) @db.Uuid
-  userId      String   @db.Uuid
-  type        String   @db.VarChar(100) // "alert", "info", "success", "error"
-  title       String   @db.VarChar(255)
-  message     String   @db.Text
-  readAt      DateTime?
-  
-  createdAt   DateTime @default(now()) @db.Timestamp(3)
+  id         String           @id @default(uuid()) @db.Uuid
+  userId     String           @map("user_id") @db.Uuid
+  type       NotificationType
+  title      String           @db.VarChar(200)
+  message    String           @db.VarChar(1000)
+  entityType String?          @map("entity_type") @db.VarChar(50)
+  entityId   String?          @map("entity_id") @db.Uuid
+  readAt     DateTime?        @map("read_at") @db.Timestamptz(3)
+  createdAt  DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
 
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt, createdAt])
   @@map("notifications")
-  @@index([userId])
-  @@index([readAt])
-  @@index([createdAt])
 }
-
-// End of schema

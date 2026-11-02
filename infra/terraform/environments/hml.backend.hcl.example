@@ -1,0 +1,6 @@
+# Copie para environments/hml.backend.hcl (ignorado pelo Git) e ajuste.
+resource_group_name  = "rg-conshub-tfstate"
+storage_account_name = "stconshubtfstate"
+container_name       = "tfstate"
+key                  = "consolidahub-hml.tfstate"
+use_azuread_auth     = true

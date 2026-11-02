@@ -1,0 +1,1819 @@
+openapi: 3.1.0
+info:
+  title: ConsolidaHub API
+  version: 0.2.0
+  summary: Motor de Regras e Relatório Consolidado
+  description: |
+    API HTTP do ConsolidaHub (monólito modular NestJS).
+
+    **Fonte de verdade e verificação.** Este arquivo é o contrato oficial. O teste
+    `test/contract/openapi.contract-spec.ts` falha quando o conjunto de rotas implementadas,
+    os códigos de sucesso ou as permissões exigidas divergem deste documento.
+
+    **Autenticação.** Toda rota, exceto `/health/*`, exige `Authorization: Bearer <token>` com um
+    *access token* v2 do Microsoft Entra ID emitido para a API (tenant único, audiência = client ID
+    ou `api://<client-id>` da API, escopo delegado `access_as_user`, cliente autorizado em `azp`).
+    A assinatura RS256 é verificada contra o JWKS do tenant; claims de papéis do token são
+    ignoradas — papéis e permissões vêm do banco do ConsolidaHub.
+
+    **Autorização.** Cada operação declara `x-required-permissions` (todas exigidas). Lista vazia
+    significa "qualquer usuário autenticado e ativo". Recursos por usuário (notificações) são
+    sempre filtrados pelo dono.
+
+    **Envelope.** Sucesso: `{ "success": true, "data": ..., "metadata"?: {paginação} }`.
+    Erro: `{ "success": false, "error": { "code", "message", "details"?, "requestId" } }`.
+    Toda resposta traz `X-Request-Id` (correlação com logs e auditoria).
+  license:
+    name: Proprietary
+servers:
+  - url: http://localhost:3000/api/v1
+    description: Execução local (as URLs dos ambientes vêm da configuração de implantação)
+security:
+  - entraIdBearer: []
+tags:
+  - name: health
+    description: Probes do orquestrador
+  - name: auth
+    description: Contexto do usuário autenticado
+  - name: users
+    description: Usuários locais (vinculados ao Entra ID por tenant + object id)
+  - name: permissions
+    description: Catálogo de papéis e permissões
+  - name: sources
+    description: Bases de entrada (fontes) e cargas de arquivos
+  - name: rules
+    description: Regras de negócio versionadas
+  - name: executions
+    description: Execuções do motor de regras
+  - name: reports
+    description: Relatório Consolidado
+  - name: notifications
+    description: Notificações do próprio usuário
+  - name: audit
+    description: Trilha de auditoria (somente leitura)
+
+paths:
+  /health/live:
+    get:
+      tags: [health]
+      operationId: healthLive
+      summary: Liveness
+      security: []
+      x-required-permissions: []
+      responses:
+        '200':
+          $ref: '#/components/responses/HealthOk'
+  /health/ready:
+    get:
+      tags: [health]
+      operationId: healthReady
+      summary: Readiness (verifica o PostgreSQL)
+      security: []
+      x-required-permissions: []
+      responses:
+        '200':
+          $ref: '#/components/responses/HealthOk'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /auth/me:
+    get:
+      tags: [auth]
+      operationId: getCurrentUser
+      summary: Perfil local, papéis e permissões efetivas do chamador
+      description: No primeiro acesso o usuário é provisionado sem papéis (um administrador concede o acesso).
+      x-required-permissions: []
+      responses:
+        '200':
+          description: Usuário autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PrincipalEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /users:
+    get:
+      tags: [users]
+      operationId: listUsers
+      x-required-permissions: ['users:view']
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/UserStatus' }
+        - name: search
+          in: query
+          description: Trecho do nome ou e-mail (sem diferenciar maiúsculas)
+          schema: { type: string, maxLength: 100 }
+        - name: role
+          in: query
+          schema: { $ref: '#/components/schemas/RoleCode' }
+      responses:
+        '200':
+          description: Página de usuários
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserPage'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /users/{userId}:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    get:
+      tags: [users]
+      operationId: getUser
+      x-required-permissions: ['users:view']
+      responses:
+        '200':
+          description: Usuário
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserEnvelope' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /users/{userId}/status:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    patch:
+      tags: [users]
+      operationId: setUserStatus
+      description: |
+        Ativa ou desativa o usuário. Ninguém desativa a si mesmo; contas com ADMIN só podem ser
+        alteradas por administradores; o último administrador ativo não pode ser desativado (409).
+      x-required-permissions: ['users:manage']
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SetUserStatusRequest' }
+      responses:
+        '200':
+          description: Usuário atualizado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserEnvelope' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /users/{userId}/roles:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    put:
+      tags: [users]
+      operationId: replaceUserRoles
+      description: |
+        Substitui o conjunto de papéis de OUTRO usuário: ninguém altera os próprios papéis
+        (409 CANNOT_CHANGE_OWN_ROLES). Somente ADMIN concede/remove ADMIN ou altera contas de
+        administradores (403 ADMIN_ROLE_REQUIRED); o último administrador ativo é preservado
+        (409 LAST_ADMIN). Os papéis de quem executa são relidos no momento da alteração.
+      x-required-permissions: ['users:manage']
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReplaceRolesRequest' }
+      responses:
+        '200':
+          description: Usuário com os novos papéis
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserEnvelope' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /roles:
+    get:
+      tags: [permissions]
+      operationId: listRoles
+      x-required-permissions: ['users:view']
+      responses:
+        '200':
+          description: Papéis e suas permissões
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessBase'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/Role' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /sources:
+    get:
+      tags: [sources]
+      operationId: listSources
+      x-required-permissions: ['sources:view']
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/ActiveStatus' }
+        - name: fileFormat
+          in: query
+          schema: { $ref: '#/components/schemas/FileFormat' }
+        - name: search
+          in: query
+          schema: { type: string, maxLength: 100 }
+      responses:
+        '200':
+          description: Página de fontes
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SourcePage' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [sources]
+      operationId: createSource
+      x-required-permissions: ['sources:create']
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateSourceRequest' }
+      responses:
+        '201':
+          description: Fonte criada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SourceEnvelope' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /sources/{sourceId}:
+    parameters:
+      - $ref: '#/components/parameters/SourceId'
+    get:
+      tags: [sources]
+      operationId: getSource
+      x-required-permissions: ['sources:view']
+      responses:
+        '200':
+          description: Fonte
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SourceEnvelope' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [sources]
+      operationId: updateSource
+      description: Código, origem e formato são imutáveis.
+      x-required-permissions: ['sources:update']
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateSourceRequest' }
+      responses:
+        '200':
+          description: Fonte atualizada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SourceEnvelope' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /sources/{sourceId}/activate:
+    parameters:
+      - $ref: '#/components/parameters/SourceId'
+    post:
+      tags: [sources]
+      operationId: activateSource
+      x-required-permissions: ['sources:update']
+      responses:
+        '200':
+          description: Fonte ativa
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SourceEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /sources/{sourceId}/deactivate:
+    parameters:
+      - $ref: '#/components/parameters/SourceId'
+    post:
+      tags: [sources]
+      operationId: deactivateSource
+      x-required-permissions: ['sources:update']
+      responses:
+        '200':
+          description: Fonte inativa (não aceita novas cargas)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SourceEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /sources/{sourceId}/imports:
+    parameters:
+      - $ref: '#/components/parameters/SourceId'
+    get:
+      tags: [sources]
+      operationId: listImports
+      x-required-permissions: ['sources:view']
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/ImportStatus' }
+      responses:
+        '200':
+          description: Cargas da fonte (mais recentes primeiro)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ImportPage' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [sources]
+      operationId: uploadImport
+      summary: Envia um arquivo (CSV ou XLSX) para a fonte
+      description: |
+        Armazena o arquivo original (com SHA-256) e agenda a validação assíncrona no worker
+        (`RECEIVED` → `PROCESSING` → `VALIDATED` | `REJECTED`). O conteúdo idêntico a uma carga
+        pendente ou validada da mesma fonte é recusado (409).
+      x-required-permissions: ['sources:import']
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  contentMediaType: application/octet-stream
+                  description: Um único arquivo; extensão compatível com o formato da fonte (.csv/.txt ou .xlsx).
+      responses:
+        '202':
+          description: Carga recebida e enfileirada para validação
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ImportEnvelope' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+  /imports/{importId}:
+    parameters:
+      - $ref: '#/components/parameters/ImportId'
+    get:
+      tags: [sources]
+      operationId: getImport
+      x-required-permissions: ['sources:view']
+      responses:
+        '200':
+          description: Carga (inclui erros de validação quando rejeitada)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ImportEnvelope' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /imports/{importId}/rows:
+    parameters:
+      - $ref: '#/components/parameters/ImportId'
+    get:
+      tags: [sources]
+      operationId: listImportRows
+      description: Linhas normalizadas de uma carga validada (prévia paginada).
+      x-required-permissions: ['sources:view']
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Página de linhas
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RowPage' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /rules:
+    get:
+      tags: [rules]
+      operationId: listRules
+      x-required-permissions: ['rules:view']
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/ActiveStatus' }
+        - name: type
+          in: query
+          schema: { $ref: '#/components/schemas/RuleType' }
+        - name: targetSourceId
+          in: query
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Página de regras (com a versão atual)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RulePage' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [rules]
+      operationId: createRule
+      description: Cria a versão 1. Regras nascem `INACTIVE` e só são aplicadas depois de ativadas.
+      x-required-permissions: ['rules:create']
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateRuleRequest' }
+      responses:
+        '201':
+          description: Regra criada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RuleEnvelope' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+  /rules/{ruleId}:
+    parameters:
+      - $ref: '#/components/parameters/RuleId'
+    get:
+      tags: [rules]
+      operationId: getRule
+      x-required-permissions: ['rules:view']
+      responses:
+        '200':
+          description: Regra com a versão atual
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RuleEnvelope' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [rules]
+      operationId: updateRule
+      description: |
+        Cria a versão N+1 (as anteriores são imutáveis e continuam referenciadas pelas execuções).
+        Exige `expectedVersion` igual à versão atual (controle otimista: 409 `RULE_VERSION_CONFLICT`)
+        e `changeReason`. Tipo e fonte-alvo não mudam.
+      x-required-permissions: ['rules:update']
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateRuleRequest' }
+      responses:
+        '200':
+          description: Regra com a nova versão
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RuleEnvelope' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+  /rules/{ruleId}/versions:
+    parameters:
+      - $ref: '#/components/parameters/RuleId'
+    get:
+      tags: [rules]
+      operationId: listRuleVersions
+      x-required-permissions: ['rules:view']
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Histórico de versões (mais recente primeiro)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RuleVersionPage' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /rules/{ruleId}/versions/{version}:
+    parameters:
+      - $ref: '#/components/parameters/RuleId'
+      - name: version
+        in: path
+        required: true
+        schema: { type: integer, minimum: 1 }
+    get:
+      tags: [rules]
+      operationId: getRuleVersion
+      x-required-permissions: ['rules:view']
+      responses:
+        '200':
+          description: Versão específica
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessBase'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data: { $ref: '#/components/schemas/RuleVersion' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /rules/{ruleId}/activate:
+    parameters:
+      - $ref: '#/components/parameters/RuleId'
+    post:
+      tags: [rules]
+      operationId: activateRule
+      x-required-permissions: ['rules:activate']
+      responses:
+        '200':
+          description: Regra ativa
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RuleEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /rules/{ruleId}/deactivate:
+    parameters:
+      - $ref: '#/components/parameters/RuleId'
+    post:
+      tags: [rules]
+      operationId: deactivateRule
+      x-required-permissions: ['rules:activate']
+      responses:
+        '200':
+          description: Regra inativa
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RuleEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /executions:
+    get:
+      tags: [executions]
+      operationId: listExecutions
+      x-required-permissions: ['executions:view']
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/ExecutionStatus' }
+        - name: sourceId
+          in: query
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/From'
+        - $ref: '#/components/parameters/To'
+      responses:
+        '200':
+          description: Página de execuções (mais recentes primeiro)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ExecutionPage' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [executions]
+      operationId: requestExecution
+      description: |
+        Fixa as entradas (carga validada mais recente da fonte ou `importId`; cargas de referência
+        exigidas por regras LOOKUP; versões atuais das regras ATIVAS aplicáveis à fase) e enfileira
+        o processamento. Com `Idempotency-Key`, a mesma requisição do mesmo usuário devolve a
+        execução existente (200 + `Idempotent-Replayed: true`); a mesma chave com outra
+        requisição resulta em 409.
+      x-required-permissions: ['executions:run']
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RequestExecutionRequest' }
+      responses:
+        '202':
+          $ref: '#/components/responses/ExecutionAccepted'
+        '200':
+          $ref: '#/components/responses/ExecutionReplayed'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+  /executions/{executionId}:
+    parameters:
+      - $ref: '#/components/parameters/ExecutionId'
+    get:
+      tags: [executions]
+      operationId: getExecution
+      x-required-permissions: ['executions:view']
+      responses:
+        '200':
+          description: Execução (estado, progresso, volumes, erros e entradas fixadas)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ExecutionEnvelope' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /executions/{executionId}/logs:
+    parameters:
+      - $ref: '#/components/parameters/ExecutionId'
+    get:
+      tags: [executions]
+      operationId: listExecutionLogs
+      x-required-permissions: ['executions:view']
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Logs da execução em ordem cronológica
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ExecutionLogPage' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /executions/{executionId}/cancel:
+    parameters:
+      - $ref: '#/components/parameters/ExecutionId'
+    post:
+      tags: [executions]
+      operationId: cancelExecution
+      description: Na fila → `CANCELLED` imediatamente; em execução → cancelamento cooperativo (entre regras).
+      x-required-permissions: ['executions:cancel']
+      responses:
+        '200':
+          description: Execução após o pedido de cancelamento
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ExecutionEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /executions/{executionId}/rerun:
+    parameters:
+      - $ref: '#/components/parameters/ExecutionId'
+    post:
+      tags: [executions]
+      operationId: rerunExecution
+      description: Nova execução com exatamente as mesmas entradas fixadas (reprodutibilidade).
+      x-required-permissions: ['executions:run']
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '202':
+          $ref: '#/components/responses/ExecutionAccepted'
+        '200':
+          $ref: '#/components/responses/ExecutionReplayed'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /reports:
+    get:
+      tags: [reports]
+      operationId: listReports
+      x-required-permissions: ['reports:view']
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - name: sourceId
+          in: query
+          schema: { type: string, format: uuid }
+        - name: executionId
+          in: query
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/From'
+        - $ref: '#/components/parameters/To'
+      responses:
+        '200':
+          description: Relatórios disponíveis (somente execuções concluídas com sucesso)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReportPage' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /reports/{reportId}:
+    parameters:
+      - $ref: '#/components/parameters/ReportId'
+    get:
+      tags: [reports]
+      operationId: getReport
+      x-required-permissions: ['reports:view']
+      responses:
+        '200':
+          description: Metadados e rastreabilidade (execução, versões de regra, carga)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReportEnvelope' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /reports/{reportId}/rows:
+    parameters:
+      - $ref: '#/components/parameters/ReportId'
+    get:
+      tags: [reports]
+      operationId: listReportRows
+      x-required-permissions: ['reports:view']
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Página de linhas do relatório
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RowPage' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /reports/{reportId}/export:
+    parameters:
+      - $ref: '#/components/parameters/ReportId'
+    get:
+      tags: [reports]
+      operationId: exportReport
+      description: |
+        Download completo. CSV: separador `;`, UTF-8 com BOM, células de texto iniciadas por
+        `= + - @ TAB CR` neutralizadas com apóstrofo e textos com `; , TAB`, aspas ou quebras de
+        linha entre aspas. XLSX: valores literais (sem fórmulas), limitado a REPORT_XLSX_MAX_CELLS
+        células porque é montado em memória. Cada exportação gera um evento de auditoria.
+      x-required-permissions: ['reports:export']
+      parameters:
+        - name: format
+          in: query
+          schema:
+            type: string
+            enum: [csv, xlsx]
+            default: csv
+      responses:
+        '200':
+          description: |
+            Arquivo. O CSV é transmitido em blocos; se a leitura falhar no meio, a conexão é
+            interrompida (o cliente não recebe um arquivo truncado como se estivesse completo).
+          headers:
+            Content-Disposition:
+              schema: { type: string }
+              description: attachment; filename="relatorio-consolidado-<id>-<data>.<ext>"
+            Cache-Control:
+              schema: { type: string, const: no-store }
+          content:
+            text/csv:
+              schema: { type: string }
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema: { type: string, contentMediaType: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422':
+          description: XLSX acima de REPORT_XLSX_MAX_CELLS (linhas × colunas) — EXPORT_TOO_LARGE; use format=csv
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /notifications:
+    get:
+      tags: [notifications]
+      operationId: listNotifications
+      x-required-permissions: []
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - name: unreadOnly
+          in: query
+          schema: { type: boolean, default: false }
+      responses:
+        '200':
+          description: Notificações do próprio usuário (mais recentes primeiro); `metadata.totalItems` com `unreadOnly=true` é a contagem de não lidas.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NotificationPage' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /notifications/read-all:
+    post:
+      tags: [notifications]
+      operationId: markAllNotificationsRead
+      x-required-permissions: []
+      responses:
+        '200':
+          description: Quantidade marcada como lida
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessBase'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        type: object
+                        required: [updated]
+                        properties:
+                          updated: { type: integer, minimum: 0 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /notifications/{notificationId}/read:
+    parameters:
+      - name: notificationId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      tags: [notifications]
+      operationId: markNotificationRead
+      description: Notificação de outro usuário responde 404 (não revela existência).
+      x-required-permissions: []
+      responses:
+        '200':
+          description: Notificação marcada como lida
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessBase'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data: { $ref: '#/components/schemas/Notification' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /audit-events:
+    get:
+      tags: [audit]
+      operationId: listAuditEvents
+      x-required-permissions: ['audit:view']
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - name: actorUserId
+          in: query
+          schema: { type: string, format: uuid }
+        - name: action
+          in: query
+          schema: { type: string, pattern: '^[A-Z][A-Z0-9_]{1,99}$' }
+        - name: entityType
+          in: query
+          schema: { type: string, pattern: '^[A-Za-z][A-Za-z0-9]{1,49}$' }
+        - name: entityId
+          in: query
+          schema: { type: string, maxLength: 64 }
+        - name: outcome
+          in: query
+          schema: { type: string, enum: [SUCCESS, FAILURE, DENIED] }
+        - $ref: '#/components/parameters/From'
+        - $ref: '#/components/parameters/To'
+      responses:
+        '200':
+          description: Eventos (mais recentes primeiro)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuditEventPage' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+components:
+  securitySchemes:
+    entraIdBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Access token v2 do Microsoft Entra ID para a API do ConsolidaHub (ver docs/arquitetura/autenticacao.md).
+
+  parameters:
+    Page:
+      name: page
+      in: query
+      schema: { type: integer, minimum: 1, default: 1 }
+    PageSize:
+      name: pageSize
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+    From:
+      name: from
+      in: query
+      description: Início (inclusive), ISO 8601
+      schema: { type: string, format: date-time }
+    To:
+      name: to
+      in: query
+      description: Fim (exclusivo), ISO 8601
+      schema: { type: string, format: date-time }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      schema: { type: string, pattern: '^[A-Za-z0-9_.:-]{8,100}$' }
+    UserId:
+      name: userId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    SourceId:
+      name: sourceId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ImportId:
+      name: importId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    RuleId:
+      name: ruleId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ExecutionId:
+      name: executionId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ReportId:
+      name: reportId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+
+  headers:
+    RequestId:
+      description: Identificador de correlação (logs, auditoria, suporte)
+      schema: { type: string }
+
+  responses:
+    HealthOk:
+      description: Serviço disponível
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/SuccessBase'
+              - type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [status]
+                    properties:
+                      status: { type: string, const: ok }
+    ExecutionAccepted:
+      description: Execução registrada e enfileirada
+      headers:
+        Location:
+          schema: { type: string }
+          description: /api/v1/executions/{id}
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ExecutionEnvelope' }
+    ExecutionReplayed:
+      description: Requisição idempotente repetida (devolve a execução original)
+      headers:
+        Idempotent-Replayed:
+          schema: { type: string, const: 'true' }
+        Location:
+          schema: { type: string }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ExecutionEnvelope' }
+    BadRequest:
+      description: Requisição inválida (VALIDATION_FAILED, INVALID_RULE_DEFINITION, BAD_REQUEST...)
+      headers:
+        X-Request-Id: { $ref: '#/components/headers/RequestId' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Unauthorized:
+      description: Token ausente (MISSING_TOKEN) ou inválido (INVALID_TOKEN)
+      headers:
+        WWW-Authenticate:
+          schema: { type: string }
+        X-Request-Id: { $ref: '#/components/headers/RequestId' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Forbidden:
+      description: Usuário inativo (USER_INACTIVE) ou sem permissão (INSUFFICIENT_PERMISSIONS, ADMIN_ROLE_REQUIRED)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    NotFound:
+      description: Recurso não encontrado (<ENTIDADE>_NOT_FOUND, ROUTE_NOT_FOUND)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Conflict:
+      description: Conflito de estado (versão, duplicidade, idempotência, transição inválida)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Unprocessable:
+      description: Requisição válida que não pode ser processada (ex. NO_ACTIVE_RULES, NO_VALIDATED_IMPORT)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    PayloadTooLarge:
+      description: Conteúdo acima do limite configurado
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    ServiceUnavailable:
+      description: Dependência indisponível
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  schemas:
+    # ---------------------------------------------------------------- envelope
+    SuccessBase:
+      type: object
+      required: [success]
+      properties:
+        success: { type: boolean, const: true }
+    PageMetadata:
+      type: object
+      required: [page, pageSize, totalItems, totalPages]
+      properties:
+        page: { type: integer, minimum: 1 }
+        pageSize: { type: integer, minimum: 1, maximum: 100 }
+        totalItems: { type: integer, minimum: 0 }
+        totalPages: { type: integer, minimum: 0 }
+    ErrorDetail:
+      type: object
+      required: [message]
+      properties:
+        field: { type: string }
+        message: { type: string }
+        code: { type: string }
+    ErrorResponse:
+      type: object
+      required: [success, error]
+      properties:
+        success: { type: boolean, const: false }
+        error:
+          type: object
+          required: [code, message, requestId]
+          properties:
+            code: { type: string, examples: [VALIDATION_FAILED] }
+            message: { type: string }
+            details:
+              type: array
+              items: { $ref: '#/components/schemas/ErrorDetail' }
+            requestId: { type: string }
+    Scalar:
+      type: [string, number, boolean, 'null']
+    Row:
+      type: object
+      description: Linha com colunas canônicas (MAIÚSCULAS, "_" no lugar de espaços).
+      additionalProperties: { $ref: '#/components/schemas/Scalar' }
+    RowPage:
+      allOf:
+        - $ref: '#/components/schemas/SuccessBase'
+        - type: object
+          required: [data, metadata]
+          properties:
+            data:
+              type: array
+              items: { $ref: '#/components/schemas/Row' }
+            metadata: { $ref: '#/components/schemas/PageMetadata' }
+
+    # ---------------------------------------------------------------- auth / users / permissions
+    PermissionCode:
+      type: string
+      enum:
+        - rules:view
+        - rules:create
+        - rules:update
+        - rules:activate
+        - sources:view
+        - sources:create
+        - sources:update
+        - sources:import
+        - executions:view
+        - executions:run
+        - executions:cancel
+        - reports:view
+        - reports:export
+        - users:view
+        - users:manage
+        - audit:view
+    RoleCode:
+      type: string
+      enum: [ADMIN, FUNCTIONAL_ADMIN, BUSINESS_ANALYST, OPERATIONS, MANAGER, VIEWER]
+    Principal:
+      type: object
+      required: [userId, displayName, email, roles, permissions]
+      properties:
+        userId: { type: string, format: uuid }
+        displayName: { type: string }
+        email: { type: [string, 'null'], description: Informativo (não identifica o usuário). }
+        roles:
+          type: array
+          items: { $ref: '#/components/schemas/RoleCode' }
+        permissions:
+          type: array
+          items: { $ref: '#/components/schemas/PermissionCode' }
+    PrincipalEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/SuccessBase'
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: '#/components/schemas/Principal' }
+    UserStatus:
+      type: string
+      enum: [ACTIVE, INACTIVE]
+    User:
+      type: object
+      required: [id, displayName, email, status, roles, lastSeenAt, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        displayName: { type: string }
+        email: { type: [string, 'null'] }
+        status: { $ref: '#/components/schemas/UserStatus' }
+        roles:
+          type: array
+          items: { $ref: '#/components/schemas/RoleCode' }
+        lastSeenAt: { type: [string, 'null'], format: date-time }
+        createdAt: { type: string, format: date-time }
+    UserEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/SuccessBase'
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: '#/components/schemas/User' }
+    UserPage:
+      allOf:
+        - $ref: '#/components/schemas/SuccessBase'
+        - type: object
+          required: [data, metadata]
+          properties:
+            data:
+              type: array
+              items: { $ref: '#/components/schemas/User' }
+            metadata: { $ref: '#/components/schemas/PageMetadata' }
+    SetUserStatusRequest:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status: { $ref: '#/components/schemas/UserStatus' }
+    ReplaceRolesRequest:
+      type: object
+      additionalProperties: false
+      required: [roles]
+      properties:
+        roles:
+          type: array
+          maxItems: 6
+          items: { $ref: '#/components/schemas/RoleCode' }
+    Role:
+      type: object
+      required: [code, name, description, permissions]
+      properties:
+        code: { $ref: '#/components/schemas/RoleCode' }
+        name: { type: string }
+        description: { type: [string, 'null'] }
+        permissions:
+          type: array
+          items: { $ref: '#/components/schemas/PermissionCode' }
+
+    # ---------------------------------------------------------------- sources / imports
+    ActiveStatus:
+      type: string
+      enum: [ACTIVE, INACTIVE]
+    FileFormat:
+      type: string
+      enum: [CSV, XLSX]
+    ExpectedColumn:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name: { type: string, maxLength: 128, description: Canonicalizado pela API }
+        required: { type: boolean, default: true }
+    SourceMetadata:
+      type: object
+      description: Metadados de negócio (no máximo 50 chaves). Credenciais são proibidas.
+      maxProperties: 50
+      propertyNames: { pattern: '^[A-Za-z][A-Za-z0-9_]{0,63}$' }
+      additionalProperties: { type: string, maxLength: 500 }
+    Source:
+      type: object
+      required: [id, code, name, description, origin, fileFormat, sheetName, csvDelimiter, expectedColumns, metadata, status, createdById, updatedById, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        code: { type: string }
+        name: { type: string }
+        description: { type: [string, 'null'] }
+        origin: { type: string, enum: [FILE_UPLOAD] }
+        fileFormat: { $ref: '#/components/schemas/FileFormat' }
+        sheetName: { type: [string, 'null'] }
+        csvDelimiter: { type: [string, 'null'], enum: [',', ';', "\t", '|', null] }
+        expectedColumns:
+          type: array
+          items: { $ref: '#/components/schemas/ExpectedColumn' }
+        metadata: { $ref: '#/components/schemas/SourceMetadata' }
+        status: { $ref: '#/components/schemas/ActiveStatus' }
+        createdById: { type: string, format: uuid }
+        updatedById: { type: [string, 'null'], format: uuid }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    SourceEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/SuccessBase'
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: '#/components/schemas/Source' }
+    SourcePage:
+      allOf:
+        - $ref: '#/components/schemas/SuccessBase'
+        - type: object
+          required: [data, metadata]
+          properties:
+            data:
+              type: array
+              items: { $ref: '#/components/schemas/Source' }
+            metadata: { $ref: '#/components/schemas/PageMetadata' }
+    CreateSourceRequest:
+      type: object
+      additionalProperties: false
+      required: [code, name, fileFormat]
+      properties:
+        code: { type: string, pattern: '^[A-Z0-9][A-Z0-9_-]{1,63}$' }
+        name: { type: string, minLength: 1, maxLength: 200 }
+        description: { type: [string, 'null'], maxLength: 2000 }
+        fileFormat: { $ref: '#/components/schemas/FileFormat' }
+        sheetName: { type: [string, 'null'], maxLength: 31, description: Somente XLSX; padrão = primeira aba }
+        csvDelimiter: { type: [string, 'null'], enum: [',', ';', "\t", '|', null], description: Somente CSV; padrão = detecção automática }
+        expectedColumns:
+          type: array
+          maxItems: 500
+          items: { $ref: '#/components/schemas/ExpectedColumn' }
+        metadata: { $ref: '#/components/schemas/SourceMetadata' }
+    UpdateSourceRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name: { type: string, minLength: 1, maxLength: 200 }
+        description: { type: [string, 'null'], maxLength: 2000 }
+        sheetName: { type: [string, 'null'], maxLength: 31 }
+        csvDelimiter: { type: [string, 'null'], enum: [',', ';', "\t", '|', null] }
+        expectedColumns:
+          type: array
+          maxItems: 500
+          items: { $ref: '#/components/schemas/ExpectedColumn' }
+        metadata: { $ref: '#/components/schemas/SourceMetadata' }
+    ImportStatus:
+      type: string
+      enum: [RECEIVED, PROCESSING, VALIDATED, REJECTED, FAILED]
+    ImportedColumn:
+      type: object
+      required: [original, name]
+      properties:
+        original: { type: [string, 'null'], description: Cabeçalho recebido; null para colunas geradas (FILE_ID, VOLUME) }
+        name: { type: string }
+    Import:
+      type: object
+      required: [id, sourceId, status, fileName, fileFormat, fileSizeBytes, checksumSha256, rowCount, columns, validationErrors, errorMessage, uploadedById, createdAt, processedAt]
+      properties:
+        id: { type: string, format: uuid }
+        sourceId: { type: string, format: uuid }
+        status: { $ref: '#/components/schemas/ImportStatus' }
+        fileName: { type: string }
+        fileFormat: { $ref: '#/components/schemas/FileFormat' }
+        fileSizeBytes: { type: integer, minimum: 1 }
+        checksumSha256: { type: string, pattern: '^[0-9a-f]{64}$' }
+        rowCount: { type: [integer, 'null'] }
+        columns:
+          type: [array, 'null']
+          items: { $ref: '#/components/schemas/ImportedColumn' }
+        validationErrors:
+          type: [array, 'null']
+          items: { $ref: '#/components/schemas/ErrorDetail' }
+        errorMessage: { type: [string, 'null'] }
+        uploadedById: { type: string, format: uuid }
+        createdAt: { type: string, format: date-time }
+        processedAt: { type: [string, 'null'], format: date-time }
+    ImportEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/SuccessBase'
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: '#/components/schemas/Import' }
+    ImportPage:
+      allOf:
+        - $ref: '#/components/schemas/SuccessBase'
+        - type: object
+          required: [data, metadata]
+          properties:
+            data:
+              type: array
+              items: { $ref: '#/components/schemas/Import' }
+            metadata: { $ref: '#/components/schemas/PageMetadata' }
+
+    # ---------------------------------------------------------------- rules
+    RuleType:
+      type: string
+      description: |
+        Categorias do motor (equivalentes ao script Power Query original): FILTER (Constante),
+        CONDITIONAL_ASSIGNMENT (Causante), ARITHMETIC (Aritmética), STANDARDIZATION (Padronal),
+        LOOKUP (Matrix / Pesquisa Avançada), PROJECTION (Colunas Finais/Renomeadas).
+        Ordem de aplicação: LOOKUP → ARITHMETIC → CONDITIONAL_ASSIGNMENT → FILTER → STANDARDIZATION
+        → PROJECTION; dentro de cada categoria, por `executionOrder`.
+      enum: [FILTER, CONDITIONAL_ASSIGNMENT, ARITHMETIC, STANDARDIZATION, LOOKUP, PROJECTION]
+    Condition:
+      type: object
+      additionalProperties: false
+      required: [column, operator, values]
+      properties:
+        column: { type: string }
+        operator:
+          type: string
+          enum: [EQUALS, NOT_EQUALS, GREATER_THAN, LESS_THAN, GREATER_OR_EQUAL, LESS_OR_EQUAL, CONTAINS, NOT_CONTAINS, STARTS_WITH, ENDS_WITH]
+        values:
+          description: A condição é verdadeira se QUALQUER valor satisfizer o operador. null só com EQUALS/NOT_EQUALS.
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/Scalar' }
+        normalization:
+          type: array
+          maxItems: 10
+          items:
+            type: string
+            enum: [DEFAULT, TRIM, REMOVE_SPECIAL_CHARACTERS, LOWERCASE, UPPERCASE, TEXT_ONLY, DIGITS_ONLY, LENGTH]
+        compareAs:
+          type: string
+          enum: [AUTO, TEXT, NUMBER]
+          default: AUTO
+    FilterDefinition:
+      type: object
+      additionalProperties: false
+      required: [condition]
+      properties:
+        condition: { $ref: '#/components/schemas/Condition' }
+    ConditionalAssignmentDefinition:
+      type: object
+      additionalProperties: false
+      required: [condition, targetColumn, value]
+      properties:
+        condition: { $ref: '#/components/schemas/Condition' }
+        targetColumn: { type: string }
+        value:
+          oneOf:
+            - type: object
+              additionalProperties: false
+              required: [kind, value]
+              properties:
+                kind: { const: LITERAL }
+                value: { $ref: '#/components/schemas/Scalar' }
+            - type: object
+              additionalProperties: false
+              required: [kind, column]
+              properties:
+                kind: { const: COLUMN }
+                column: { type: string }
+    ArithmeticDefinition:
+      type: object
+      additionalProperties: false
+      required: [operands, operations, targetColumn]
+      properties:
+        operands:
+          type: array
+          minItems: 1
+          items: { type: string }
+        operations:
+          type: array
+          description: Uma operação entre cada par de operandos consecutivos.
+          items:
+            type: string
+            enum: [ADD, SUBTRACT, MULTIPLY, DIVIDE, AVERAGE_BY_ROW_COUNT]
+        targetColumn: { type: string }
+    StandardizationDefinition:
+      type: object
+      additionalProperties: false
+      required: [columns, operation]
+      properties:
+        columns:
+          oneOf:
+            - const: ALL
+            - type: array
+              minItems: 1
+              items: { type: string }
+        operation:
+          type: object
+          required: [kind]
+          description: 'kind: TRUNCATE{length} | REMOVE{substrings} | CLEAN{removeSpecialCharacters} | KEEP{tokens} | TRIM | REPLACE_SPACES{replacement} | NORMALIZE | INDEX{start}'
+          properties:
+            kind:
+              type: string
+              enum: [TRUNCATE, REMOVE, CLEAN, KEEP, TRIM, REPLACE_SPACES, NORMALIZE, INDEX]
+    LookupDefinition:
+      type: object
+      additionalProperties: false
+      required: [keyColumns, referenceSourceIds, referenceKeyColumns, columnsToBring]
+      properties:
+        keyColumns:
+          type: array
+          minItems: 1
+          items: { type: string }
+        referenceSourceIds:
+          type: array
+          minItems: 1
+          items: { type: string, format: uuid }
+        referenceKeyColumns:
+          type: array
+          minItems: 1
+          items: { type: string }
+        columnsToBring:
+          type: array
+          minItems: 1
+          items: { type: string }
+        matchMode:
+          type: string
+          enum: [EXACT, NORMALIZED]
+          default: EXACT
+          description: EXACT = junção original; NORMALIZED = "Pesquisa Avançada" (chaves normalizadas, primeira ocorrência, "NO DATA" sem chave)
+    ProjectionDefinition:
+      type: object
+      additionalProperties: false
+      required: [columns]
+      properties:
+        columns:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            additionalProperties: false
+            required: [source]
+            properties:
+              source: { type: string }
+              as: { type: string }
+    RuleDefinition:
+      description: Estrutura conforme `type` da regra; validada e canonicalizada pela API.
+      oneOf:
+        - $ref: '#/components/schemas/FilterDefinition'
+        - $ref: '#/components/schemas/ConditionalAssignmentDefinition'
+        - $ref: '#/components/schemas/ArithmeticDefinition'
+        - $ref: '#/components/schemas/StandardizationDefinition'
+        - $ref: '#/components/schemas/LookupDefinition'
+        - $ref: '#/components/schemas/ProjectionDefinition'
+    RuleVersion:
+      type: object
+      required: [id, ruleId, version, name, description, phase, executionOrder, definition, changeReason, createdById, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        ruleId: { type: string, format: uuid }
+        version: { type: integer, minimum: 1 }
+        name: { type: string }
+        description: { type: [string, 'null'] }
+        phase: { type: [string, 'null'], description: Fase de execução; null aplica-se a todas }
+        executionOrder: { type: integer, minimum: 0 }
+        definition: { $ref: '#/components/schemas/RuleDefinition' }
+        changeReason: { type: [string, 'null'] }
+        createdById: { type: string, format: uuid }
+        createdAt: { type: string, format: date-time }
+    Rule:
+      type: object
+      required: [id, type, targetSourceId, status, currentVersion, createdById, createdAt, updatedAt, current]
+      properties:
+        id: { type: string, format: uuid }
+        type: { $ref: '#/components/schemas/RuleType' }
+        targetSourceId: { type: string, format: uuid }
+        status: { $ref: '#/components/schemas/ActiveStatus' }
+        currentVersion: { type: integer, minimum: 1 }
+        createdById: { type: string, format: uuid }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        current: { $ref: '#/components/schemas/RuleVersion' }
+    RuleEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/SuccessBase'
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: '#/components/schemas/Rule' }
+    RulePage:
+      allOf:
+        - $ref: '#/components/schemas/SuccessBase'
+        - type: object
+          required: [data, metadata]
+          properties:
+            data:
+              type: array
+              items: { $ref: '#/components/schemas/Rule' }
+            metadata: { $ref: '#/components/schemas/PageMetadata' }
+    RuleVersionPage:
+      allOf:
+        - $ref: '#/components/schemas/SuccessBase'
+        - type: object
+          required: [data, metadata]
+          properties:
+            data:
+              type: array
+              items: { $ref: '#/components/schemas/RuleVersion' }
+            metadata: { $ref: '#/components/schemas/PageMetadata' }
+    CreateRuleRequest:
+      type: object
+      additionalProperties: false
+      required: [type, targetSourceId, name, definition]
+      properties:
+        type: { $ref: '#/components/schemas/RuleType' }
+        targetSourceId: { type: string, format: uuid }
+        name: { type: string, minLength: 1, maxLength: 200 }
+        description: { type: [string, 'null'], maxLength: 2000 }
+        phase: { type: [string, 'null'], maxLength: 100 }
+        executionOrder: { type: integer, minimum: 0, maximum: 1000000, default: 0 }
+        definition: { $ref: '#/components/schemas/RuleDefinition' }
+        changeReason: { type: [string, 'null'], maxLength: 500 }
+    UpdateRuleRequest:
+      type: object
+      additionalProperties: false
+      required: [expectedVersion, changeReason]
+      properties:
+        expectedVersion: { type: integer, minimum: 1 }
+        changeReason: { type: string, minLength: 3, maxLength: 500 }
+        name: { type: string, minLength: 1, maxLength: 200 }
+        description: { type: [string, 'null'], maxLength: 2000 }
+        phase: { type: [string, 'null'], maxLength: 100 }
+        executionOrder: { type: integer, minimum: 0, maximum: 1000000 }
+        definition: { $ref: '#/components/schemas/RuleDefinition' }
+
+    # ---------------------------------------------------------------- executions
+    ExecutionStatus:
+      type: string
+      enum: [QUEUED, RUNNING, SUCCEEDED, FAILED, CANCELLED]
+    InputSnapshot:
+      type: object
+      description: Entradas fixadas no pedido (garantem a reprodutibilidade).
+      required: [primaryImportId, referenceImports, rules]
+      properties:
+        primaryImportId: { type: string, format: uuid }
+        referenceImports:
+          type: array
+          items:
+            type: object
+            required: [sourceId, importId]
+            properties:
+              sourceId: { type: string, format: uuid }
+              importId: { type: string, format: uuid }
+        rules:
+          type: array
+          description: Na ordem em que o motor aplica as regras.
+          items:
+            type: object
+            required: [ruleId, ruleVersionId, version]
+            properties:
+              ruleId: { type: string, format: uuid }
+              ruleVersionId: { type: string, format: uuid }
+              version: { type: integer, minimum: 1 }
+    ExecutionProgress:
+      type: object
+      required: [stage, rulesApplied, totalRules]
+      properties:
+        stage: { type: string, enum: [LOADING, APPLYING_RULES, WRITING_REPORT, DONE] }
+        rulesApplied: { type: integer, minimum: 0 }
+        totalRules: { type: integer, minimum: 0 }
+    Execution:
+      type: object
+      required: [id, sourceId, status, phase, requestedById, idempotencyKey, requestHash, engineVersion, inputSnapshot, reproducedFromId, cancelRequested, rowsIn, rowsOut, progress, errorCode, errorMessage, reportId, createdAt, startedAt, finishedAt]
+      properties:
+        id: { type: string, format: uuid }
+        sourceId: { type: string, format: uuid }
+        status: { $ref: '#/components/schemas/ExecutionStatus' }
+        phase: { type: [string, 'null'] }
+        requestedById: { type: string, format: uuid }
+        idempotencyKey: { type: [string, 'null'] }
+        requestHash: { type: string, pattern: '^[0-9a-f]{64}$' }
+        engineVersion: { type: string, description: Versão do motor efetivamente usada }
+        inputSnapshot: { $ref: '#/components/schemas/InputSnapshot' }
+        reproducedFromId: { type: [string, 'null'], format: uuid }
+        cancelRequested: { type: boolean }
+        rowsIn: { type: [integer, 'null'] }
+        rowsOut: { type: [integer, 'null'] }
+        progress:
+          oneOf:
+            - $ref: '#/components/schemas/ExecutionProgress'
+            - type: 'null'
+        errorCode: { type: [string, 'null'], examples: [ROW_LIMIT_EXCEEDED, INPUT_UNAVAILABLE, INTERNAL_ERROR] }
+        errorMessage: { type: [string, 'null'] }
+        reportId: { type: [string, 'null'], format: uuid }
+        createdAt: { type: string, format: date-time }
+        startedAt: { type: [string, 'null'], format: date-time }
+        finishedAt: { type: [string, 'null'], format: date-time }
+    ExecutionEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/SuccessBase'
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: '#/components/schemas/Execution' }
+    ExecutionPage:
+      allOf:
+        - $ref: '#/components/schemas/SuccessBase'
+        - type: object
+          required: [data, metadata]
+          properties:
+            data:
+              type: array
+              items: { $ref: '#/components/schemas/Execution' }
+            metadata: { $ref: '#/components/schemas/PageMetadata' }
+    ExecutionLog:
+      type: object
+      required: [id, occurredAt, level, step, message, details]
+      properties:
+        id: { type: string, description: Sequencial (BIGINT serializado como texto) }
+        occurredAt: { type: string, format: date-time }
+        level: { type: string, enum: [INFO, WARN, ERROR] }
+        step: { type: string }
+        message: { type: string }
+        details: {}
+    ExecutionLogPage:
+      allOf:
+        - $ref: '#/components/schemas/SuccessBase'
+        - type: object
+          required: [data, metadata]
+          properties:
+            data:
+              type: array
+              items: { $ref: '#/components/schemas/ExecutionLog' }
+            metadata: { $ref: '#/components/schemas/PageMetadata' }
+    RequestExecutionRequest:
+      type: object
+      additionalProperties: false
+      required: [sourceId]
+      properties:
+        sourceId: { type: string, format: uuid }
+        phase: { type: [string, 'null'], maxLength: 100 }
+        importId: { type: string, format: uuid, description: Padrão = carga validada mais recente da fonte }
+        referenceImportIds:
+          type: object
+          description: Substitui a carga de referência (chave = id da fonte de referência).
+          maxProperties: 20
+          propertyNames: { format: uuid }
+          additionalProperties: { type: string, format: uuid }
+
+    # ---------------------------------------------------------------- reports
+    Report:
+      type: object
+      required: [id, executionId, sourceId, name, columns, rowCount, createdAt, availableAt, execution]
+      properties:
+        id: { type: string, format: uuid }
+        executionId: { type: string, format: uuid }
+        sourceId: { type: string, format: uuid }
+        name: { type: string }
+        columns:
+          type: array
+          items: { type: string }
+        rowCount: { type: integer, minimum: 0 }
+        createdAt: { type: string, format: date-time }
+        availableAt: { type: [string, 'null'], format: date-time }
+        execution:
+          type: object
+          required: [phase, requestedById, engineVersion, reproducedFromId, primaryImportId, rules]
+          properties:
+            phase: { type: [string, 'null'] }
+            requestedById: { type: string, format: uuid }
+            engineVersion: { type: string }
+            reproducedFromId: { type: [string, 'null'], format: uuid }
+            primaryImportId: { type: string, format: uuid }
+            rules:
+              type: array
+              items:
+                type: object
+                required: [ruleId, ruleVersionId, version]
+                properties:
+                  ruleId: { type: string, format: uuid }
+                  ruleVersionId: { type: string, format: uuid }
+                  version: { type: integer }
+    ReportEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/SuccessBase'
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: '#/components/schemas/Report' }
+    ReportPage:
+      allOf:
+        - $ref: '#/components/schemas/SuccessBase'
+        - type: object
+          required: [data, metadata]
+          properties:
+            data:
+              type: array
+              items: { $ref: '#/components/schemas/Report' }
+            metadata: { $ref: '#/components/schemas/PageMetadata' }
+
+    # ---------------------------------------------------------------- notifications / audit
+    Notification:
+      type: object
+      required: [id, type, title, message, entityType, entityId, readAt, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        type: { type: string, enum: [IMPORT_VALIDATED, IMPORT_REJECTED, EXECUTION_SUCCEEDED, EXECUTION_FAILED] }
+        title: { type: string }
+        message: { type: string }
+        entityType: { type: [string, 'null'] }
+        entityId: { type: [string, 'null'], format: uuid }
+        readAt: { type: [string, 'null'], format: date-time }
+        createdAt: { type: string, format: date-time }
+    NotificationPage:
+      allOf:
+        - $ref: '#/components/schemas/SuccessBase'
+        - type: object
+          required: [data, metadata]
+          properties:
+            data:
+              type: array
+              items: { $ref: '#/components/schemas/Notification' }
+            metadata: { $ref: '#/components/schemas/PageMetadata' }
+    AuditEvent:
+      type: object
+      required: [id, occurredAt, actorUserId, action, entityType, entityId, outcome, requestId, ipAddress, details]
+      properties:
+        id: { type: string, format: uuid }
+        occurredAt: { type: string, format: date-time }
+        actorUserId: { type: [string, 'null'], format: uuid, description: null = sistema (worker) ou CLI }
+        action: { type: string, examples: [RULE_UPDATED] }
+        entityType: { type: string }
+        entityId: { type: [string, 'null'] }
+        outcome: { type: string, enum: [SUCCESS, FAILURE, DENIED] }
+        requestId: { type: [string, 'null'] }
+        ipAddress: { type: [string, 'null'] }
+        details: { description: Dados de negócio sanitizados (sem segredos, e-mails ou conteúdo de arquivos) }
+    AuditEventPage:
+      allOf:
+        - $ref: '#/components/schemas/SuccessBase'
+        - type: object
+          required: [data, metadata]
+          properties:
+            data:
+              type: array
+              items: { $ref: '#/components/schemas/AuditEvent' }
+            metadata: { $ref: '#/components/schemas/PageMetadata' }
