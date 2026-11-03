@@ -19,6 +19,16 @@ como concluído.
 | B9 | Papel de banco DML em hml/prod | Até a troca, a aplicação usaria a credencial de migração | `infra/database/app-role.sql` + segredo `database-url-app` | Plataforma/DBA |
 | B10 | Teste ponta a ponta real | Integrações externas só foram testadas com dublês | Login real, carga, regra, execução, exportação em dev | Dev + Negócio |
 
+### Situação em 02/11/2026 ([registro](09-execucao-azure-dev.md))
+
+| # | Situação em dev |
+| --- | --- |
+| B6 | **Concluída em dev:** registros API e SPA criados e conferidos por configuração (sem segredos, sem consentimento administrativo). Login real depende de B10; hml/prod pendentes |
+| B7 | **Parcial:** Azure Container Apps aceito pelo responsável para dev ([ADR-0004](../arquitetura/adr/0004-azure-container-apps.md)); região de dev `brazilsouth` (`eastus2` recusou o PostgreSQL Flexible com `SkuNotAvailable` nesta assinatura). Política de rede (WAF, *private endpoints*) e região de hml/prod em aberto |
+| B8 | **Fase 1 de dev aplicada** (9 recursos ARM no grupo; 18 endereços no *state*); plano de conferência sem diferenças. Faltam a fase 2 (imagens, apps, job) e hml/prod |
+| B9 | **Pendente:** exige acesso à rede privada do banco (Cloud Shell com VNet, *jump host* ou job no ambiente); `database-url-app` segue com o valor inválido de propósito |
+| B10 | **Pendente:** login real e fluxo ponta a ponta não executados (dependem do ambiente local com Docker/PostgreSQL ou da fase 2) |
+
 ## 2. Antes de produção
 
 | # | Pendência | Observação |

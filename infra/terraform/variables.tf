@@ -109,3 +109,22 @@ variable "tags" {
   type    = map(string)
   default = {}
 }
+
+variable "postgres_zone" {
+  description = "Availability zone of the primary server (null lets Azure choose; HA keeps the standby in zone 2)."
+  type        = string
+  default     = "1"
+  nullable    = true
+}
+
+variable "key_vault_name" {
+  description = "Optional Key Vault name override (e.g. when kv-<prefix>-<env> is held by a soft-deleted vault with purge protection)."
+  type        = string
+  default     = null
+}
+
+variable "log_analytics_name" {
+  description = "Optional Log Analytics workspace name override (e.g. while a deleted workspace with the default name is in soft delete)."
+  type        = string
+  default     = null
+}

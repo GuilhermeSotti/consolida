@@ -20,7 +20,7 @@ resource "azurerm_postgresql_flexible_server" "main" {
   public_network_access_enabled = false
   administrator_login           = "consolidahub_admin"
   administrator_password        = random_password.postgres_admin.result
-  zone                          = "1"
+  zone                          = var.postgres_zone
   tags                          = local.tags
 
   dynamic "high_availability" {

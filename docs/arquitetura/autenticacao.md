@@ -41,6 +41,13 @@ Variáveis do web (públicas, embutidas no build): `NEXT_PUBLIC_ENTRA_TENANT_ID`
 Na API: `ENTRA_ALLOWED_CLIENT_IDS=<client-id-do-SPA>` (obrigatório em produção; o `azp` do token
 precisa estar nessa lista).
 
+> **Dev (02/11/2026):** registros `ConsolidaHub API (dev)` (appId
+> `e1396da9-b5d8-4365-a27c-23c37ab0fe35`) e `ConsolidaHub Web (dev)` (appId
+> `29163ffc-63d3-40ee-a163-b7ee9c9c2117`) criados conforme esta seção — SPA com redirect
+> `http://localhost:3001/`, pré-autorizado no escopo `access_as_user`; nenhum segredo ou
+> certificado; nenhum consentimento administrativo. hml/prod pendentes. Evidências:
+> [auditoria/09](../auditoria/09-execucao-azure-dev.md).
+
 ## 2. Fluxo
 
 ```mermaid

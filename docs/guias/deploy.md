@@ -1,11 +1,13 @@
 # Implantação (Azure Container Apps)
 
-> **Situação:** a infraestrutura está descrita em `infra/terraform` e o pipeline em
-> `.github/workflows/deploy.yml`, mas **nada foi provisionado nem executado** nesta etapa
-> (`terraform validate/plan` não foram rodados — não havia binário do Terraform no ambiente de
-> trabalho; a sintaxe HCL e as referências entre variáveis/recursos foram verificadas). O
-> provedor Azure é uma **inferência** do repositório herdado (Terraform `azurerm`) e do uso do
-> Entra ID — confirmar com a equipe de plataforma ([ADR-0004](../arquitetura/adr/0004-azure-container-apps.md)).
+> **Situação (02/11/2026):** a **fase 1 do ambiente dev** foi provisionada em `brazilsouth` (rede,
+> PostgreSQL, ACR, Key Vault, Log Analytics e ambiente Container Apps), com *state* remoto em
+> `stconshubtfstate`. Registro, evidências e pendências em
+> [auditoria/09](../auditoria/09-execucao-azure-dev.md). A fase 2 (imagens, apps e job de
+> migração), os ambientes hml/prod e o workflow **Deploy** ainda **não** foram executados. Azure
+> Container Apps foi aceito para dev
+> ([ADR-0004](../arquitetura/adr/0004-azure-container-apps.md)); para hml/prod e para a política
+> de rede, a confirmação da equipe de plataforma continua pendente.
 
 ## 1. Componentes por ambiente (dev, hml, prod)
 
@@ -23,9 +25,18 @@ Container Apps, apps `api` (ingress externo HTTPS), `worker` (sem ingress, probe
    Redirect URI do SPA = origem pública do web com `/` final.
 2. Conta de armazenamento para o *state* do Terraform (copie
    `infra/terraform/environments/<env>.backend.hcl.example` para `<env>.backend.hcl`, ignorado pelo Git).
-3. Revisar `environments/<env>.tfvars`: `location` (herdado: `eastus2` — **confirmar**), SKUs,
-   IDs do Entra, `web_public_origin`. A região precisa suportar zonas de disponibilidade se
-   `postgres_high_availability = true` (zona do servidor fixada em `1`, *standby* em `2`).
+   Dev (02/11/2026): `rg-conshub-tfstate`/`stconshubtfstate` em `eastus2`, contêiner `tfstate`,
+   chave `consolidahub-dev.tfstate`; acesso só por Entra ID (`use_azuread_auth = true`, chave
+   compartilhada desabilitada) — quem roda o Terraform precisa de *Storage Blob Data Contributor*
+   nessa conta.
+3. Revisar `environments/<env>.tfvars`: `location` (dev: `brazilsouth` desde 02/11/2026, porque
+   `eastus2` recusou o PostgreSQL Flexible nesta assinatura; hml/prod ainda com `eastus2` —
+   **confirmar e testar a capacidade antes**), SKUs, IDs do Entra, `web_public_origin`. A região
+   precisa suportar zonas de disponibilidade se `postgres_high_availability = true` (*standby* na
+   zona `2`; a zona do servidor vem de `postgres_zone`, padrão `1`, ou `null` para o Azure
+   escolher). Em dev, os IDs reais e os ajustes locais estão em `environments/dev.auto.tfvars`
+   (ignorado pelo Git); informe-o com `-var-file`, porque fora do diretório raiz ele não é carregado
+   automaticamente. Opcionais: `key_vault_name` e `log_analytics_name` (seção 8).
 4. Identidade de deploy para o GitHub (federação OIDC, sem segredo): credencial federada com
    *subject* `repo:<org>/<repo>:environment:<env>`; **AcrPush** no ACR e, no resource group,
    permissão para ler/atualizar/iniciar Container Apps e jobs (papel interno equivalente ou
@@ -35,6 +46,11 @@ Container Apps, apps `api` (ingress externo HTTPS), `worker` (sem ingress, probe
    `AZURE_RESOURCE_GROUP`, `ACR_NAME`, `CA_API`, `CA_WORKER`, `CA_WEB`, `CAJ_MIGRATE`,
    `NEXT_PUBLIC_API_BASE_URL`, `NEXT_PUBLIC_ENTRA_TENANT_ID`, `NEXT_PUBLIC_ENTRA_CLIENT_ID`,
    `NEXT_PUBLIC_API_SCOPE` (nomes dos recursos: `terraform output`).
+6. Provedores de recursos registrados na assinatura: `Microsoft.App`, `Microsoft.ContainerRegistry`,
+   `Microsoft.DBforPostgreSQL`, `Microsoft.KeyVault`, `Microsoft.ManagedIdentity`,
+   `Microsoft.Network`, `Microsoft.OperationalInsights` e `Microsoft.Storage` (`az provider register
+   --namespace <ns>`; sem eles, até a checagem de nome da conta de armazenamento falha com
+   `SubscriptionNotFound`).
 
 ## 3. Primeiro provisionamento (bootstrap em duas fases)
 
@@ -45,12 +61,24 @@ do executor se propaga — repita o `apply`.
 ```bash
 cd infra/terraform
 terraform init -backend-config=environments/dev.backend.hcl
-# fase 1: rede, registro, identidade, cofre e banco
-terraform plan  -var-file=environments/dev.tfvars -var image_tag=bootstrap \
+# fase 1: rede, registro, identidade, cofre, banco, Log Analytics e ambiente Container Apps
+terraform plan  -var-file=environments/dev.tfvars -var-file=environments/dev.auto.tfvars \
+  -var image_tag=bootstrap -out dev-fase1.tfplan \
   -target=azurerm_container_registry.main -target=azurerm_role_assignment.apps_acr_pull \
   -target=azurerm_key_vault_secret.database_url_app -target=azurerm_container_app_environment.main
-terraform apply ...   # mesmo comando, após revisar o plano
+terraform apply dev-fase1.tfplan   # o plano revisado; apague o arquivo depois (tem valores sensíveis)
 ```
+
+Os alvos trazem as dependências: em dev (02/11/2026) a fase 1 criou **17 recursos** — grupo, VNet e
+duas sub-redes, zona DNS privada e vínculo, identidade `apps` com AcrPull, ACR, Key Vault com o
+papel *Key Vault Secrets Officer* do executor, senha aleatória do admin, PostgreSQL e banco, segredo
+`database-url-app` (placeholder), Log Analytics e o ambiente Container Apps (com custo recorrente
+desde a fase 1). Ficam para a fase 2 as identidades `migrator` e `web`, o segredo
+`database-url-migrator`, as permissões por segredo, os apps e o job. Se um `apply` parar por erro
+transitório do Azure (ex.: sub-rede dada como inexistente logo após criada, ou 404 ao consultar um
+recurso recém-criado), gere o plano de novo antes de repetir: recurso criado mas ausente do *state*
+→ `terraform import`; recurso marcado como *tainted* mas saudável → `terraform untaint`. Não exclua
+recursos para recriá-los sem revisar.
 
 Depois publique as três imagens com o SHA do commit — `az acr login` + `docker build --target
 runtime|migrator` / `docker push` (ou o workflow **Deploy**: o push ocorre antes da migração; nesta
@@ -116,3 +144,16 @@ az containerapp exec -g <rg> -n <ca-api> --command "node dist/database/grant-rol
 * Fluxo de fumaça: cadastrar fonte, enviar carga pequena, ativar regra, executar, exportar.
 * Logs no Log Analytics sem tokens/e-mails; auditoria com `requestId`.
 * Conexão da aplicação usando `consolidahub_app` (não o admin).
+
+## 8. Excluir e recriar um ambiente (lições de dev, 02/11/2026)
+
+* Gere `terraform plan -destroy -out <arquivo>`, revise e aplique **esse** plano; confira que só há
+  exclusões e só no grupo do ambiente (o *state* remoto e os registros do Entra ID ficam fora).
+* PostgreSQL e banco têm `prevent_destroy`: excluí-los exige mudança deliberada e revisada no
+  código.
+* O Key Vault vai para exclusão reversível com *purge protection* e o nome fica retido até a purga
+  (90 dias); o Log Analytics também fica em exclusão reversível. Para recriar antes disso, use
+  `key_vault_name`/`log_analytics_name` em `environments/<env>.auto.tfvars` (dev usa
+  `kv-conshub-dev-brs` e `log-conshub-dev-brs`).
+* Antes de trocar de região, confirme a capacidade do PostgreSQL Flexible criando um servidor de
+  teste sem rede num grupo temporário: a API de capacidades não revelou a restrição de `eastus2`.

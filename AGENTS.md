@@ -64,8 +64,13 @@ alterações locais do usuário.
 ## AI-Harness
 
 O repositório `ai-harness` (na máquina de desenvolvimento: `C:\Users\Particular\Projetos\ai-harness`;
-pacote Python 0.1.0) foi inspecionado em
-23/10/2026: o Maestro tem apenas agentes `analyst`/`reviewer` com provider **simulado**, planejador
-fixo e nenhuma integração MCP/Claude Code. Ele **não** produz análise ou revisão reais — não
-atribua resultados a ele nem simule chamadas. A proposta de integração mínima está em
-`docs/auditoria/07-proximas-acoes.md`. Reavalie a disponibilidade antes de cada tarefa relevante.
+pacote Python 0.1.0) tem o Maestro com os agentes `analyst` e `reviewer`. O provider padrão é
+**simulado** e não produz análise real; com um provider real configurado, os relatórios são reais.
+Em 02/11/2026 foram usados com o provider Anthropic por um executor externo ao repositório (pasta de
+operações), via API de biblioteca do Maestro, com plano explícito e limites maiores — a CLI e o
+servidor MCP do harness limitam cada tarefa a 30 s, e o provider Anthropic do harness usa
+`max_tokens` 4096. Execuções e achados: `docs/auditoria/09-execucao-azure-dev.md`. O servidor MCP
+(`python -m ai_harness.mcp_server`) não estava registrado nas sessões usadas; a proposta de
+integração está em `docs/auditoria/07-proximas-acoes.md`. Os agentes só leem evidências e devolvem
+relatórios (não executam operações). Não atribua a eles resultados que não produziram nem simule
+chamadas; reavalie a disponibilidade antes de cada tarefa relevante.

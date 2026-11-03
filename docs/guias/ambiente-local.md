@@ -35,6 +35,13 @@ Preencha `ENTRA_TENANT_ID`, `ENTRA_API_CLIENT_ID`, `ENTRA_ALLOWED_CLIENT_IDS` (S
 `NEXT_PUBLIC_ENTRA_CLIENT_ID` e `NEXT_PUBLIC_API_SCOPE`. Troque `POSTGRES_PASSWORD` e mantenha-a
 igual à senha das URLs `DATABASE_URL`/`SHADOW_DATABASE_URL`. Nunca versione `.env`.
 
+> **Dev (02/11/2026):** o `.env` e o `web/.env.local` desta máquina foram preenchidos por script
+> com os IDs dos registros de dev e uma `POSTGRES_PASSWORD` aleatória nova (valores só nesses
+> arquivos, fora do Git). Se o volume `postgres-data` já existia, a senha nova **não** vale
+> sozinha: a imagem do PostgreSQL só usa `POSTGRES_PASSWORD` ao inicializar um volume vazio.
+> Recrie o volume (`docker compose down -v`, que apaga os dados locais) ou altere a senha do
+> usuário `consolidahub` no banco.
+
 ## 4. Opção A — tudo no Docker Compose
 
 ```bash

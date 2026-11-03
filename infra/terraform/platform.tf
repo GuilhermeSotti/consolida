@@ -54,7 +54,7 @@ resource "azurerm_role_assignment" "web_acr_pull" {
 
 # ---------------------------------------------------------------- secrets
 resource "azurerm_key_vault" "main" {
-  name                       = "kv-${local.name}"
+  name                       = coalesce(var.key_vault_name, "kv-${local.name}")
   location                   = azurerm_resource_group.main.location
   resource_group_name        = azurerm_resource_group.main.name
   tenant_id                  = data.azurerm_client_config.current.tenant_id

@@ -8,8 +8,9 @@ trilha de auditoria.
 > **Estado atual:** fundação do MVP refatorada e testada localmente (ver
 > [evidências](docs/auditoria/05-evidencias-de-validacao.md)). Antes de usar: regenerar os
 > lockfiles (`npm install` na raiz e em `web/`), executar a CI completa e cumprir as
-> [pendências para produção](docs/auditoria/06-pendencias-para-producao.md). A infraestrutura de
-> nuvem está descrita, **não provisionada**.
+> [pendências para produção](docs/auditoria/06-pendencias-para-producao.md). Nuvem: só a **fase 1
+> do ambiente dev** está provisionada (02/11/2026, `brazilsouth`); a aplicação ainda não foi
+> implantada ([registro](docs/auditoria/09-execucao-azure-dev.md)).
 
 ## Stack
 

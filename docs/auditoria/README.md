@@ -10,6 +10,7 @@
 | 5. Pendências para produção | [06-pendencias-para-producao.md](06-pendencias-para-producao.md) |
 | 6. Próximas ações (inclui proposta de integração do AI-Harness) | [07-proximas-acoes.md](07-proximas-acoes.md) |
 | Revisão final independente (Fase G) | [08-revisao-final.md](08-revisao-final.md) |
+| Execução das pendências de Azure em dev (nov/2026) | [09-execucao-azure-dev.md](09-execucao-azure-dev.md) |
 
 Base auditada: commit `f3d256e` (branch `dev`). Os relatórios descrevem fatos verificados; o que
 não pôde ser executado está marcado como tal.
